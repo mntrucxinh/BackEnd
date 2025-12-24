@@ -18,24 +18,60 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS citext")
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 
-    user_role = sa.Enum("admin", "editor", name="user_role")
-    post_type = sa.Enum("news", "announcement", name="post_type")
-    content_status = sa.Enum("draft", "published", "archived", name="content_status")
-    job_type = sa.Enum("post_to_facebook", name="job_type")
-    job_status = sa.Enum(
-        "queued", "processing", "succeeded", "failed", "dead", name="job_status"
-    )
-    embed_provider = sa.Enum("youtube", "facebook", name="embed_provider")
-    contact_status = sa.Enum("new", "handled", "spam", name="contact_status")
+    # Create enums using DO block to check existence first
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE user_role AS ENUM ('admin', 'editor');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE post_type AS ENUM ('news', 'announcement');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE content_status AS ENUM ('draft', 'published', 'archived');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE job_type AS ENUM ('post_to_facebook');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE job_status AS ENUM ('queued', 'processing', 'succeeded', 'failed', 'dead');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE embed_provider AS ENUM ('youtube', 'facebook');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE contact_status AS ENUM ('new', 'handled', 'spam');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+    """)
 
-    bind = op.get_bind()
-    user_role.create(bind, checkfirst=True)
-    post_type.create(bind, checkfirst=True)
-    content_status.create(bind, checkfirst=True)
-    job_type.create(bind, checkfirst=True)
-    job_status.create(bind, checkfirst=True)
-    embed_provider.create(bind, checkfirst=True)
-    contact_status.create(bind, checkfirst=True)
+    # Define enum types for SQLAlchemy to use in table definitions
+    user_role = postgresql.ENUM("admin", "editor", name="user_role", create_type=False)
+    post_type = postgresql.ENUM("news", "announcement", name="post_type", create_type=False)
+    content_status = postgresql.ENUM("draft", "published", "archived", name="content_status", create_type=False)
+    job_type = postgresql.ENUM("post_to_facebook", name="job_type", create_type=False)
+    job_status = postgresql.ENUM(
+        "queued", "processing", "succeeded", "failed", "dead", name="job_status", create_type=False
+    )
+    embed_provider = postgresql.ENUM("youtube", "facebook", name="embed_provider", create_type=False)
+    contact_status = postgresql.ENUM("new", "handled", "spam", name="contact_status", create_type=False)
 
     op.create_table(
         "users",
@@ -231,13 +267,14 @@ def upgrade() -> None:
             "((type = 'news') AND (block_id IS NULL))",
             name="ck_posts_block_id_by_type",
         ),
-        sa.UniqueConstraint(
-            "type",
-            "slug",
-            name="uq_posts_type_slug_active",
-            postgresql_where=sa.text("deleted_at IS NULL"),
-        ),
         sa.UniqueConstraint("public_id", name="uq_posts_public_id"),
+    )
+    op.create_index(
+        "uq_posts_type_slug_active",
+        "posts",
+        ["type", "slug"],
+        unique=True,
+        postgresql_where=sa.text("deleted_at IS NULL"),
     )
     op.create_index(
         "posts_list_news_idx",
@@ -334,12 +371,14 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
         ),
         sa.Column("deleted_at", sa.TIMESTAMP(timezone=True)),
-        sa.UniqueConstraint(
-            "slug",
-            name="uq_albums_slug_active",
-            postgresql_where=sa.text("deleted_at IS NULL"),
-        ),
         sa.UniqueConstraint("public_id", name="uq_albums_public_id"),
+    )
+    op.create_index(
+        "uq_albums_slug_active",
+        "albums",
+        ["slug"],
+        unique=True,
+        postgresql_where=sa.text("deleted_at IS NULL"),
     )
     op.create_index(
         "albums_list_idx",
