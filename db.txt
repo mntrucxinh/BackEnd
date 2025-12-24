@@ -1,0 +1,305 @@
+Tài liệu thiết kế CSDL
+Website Mầm non - Bản gọn (1 Facebook Page)
+Ngày tạo: 23/12/2025
+1. Tổng quan
+Tài liệu này mô tả thiết kế cơ sở dữ liệu (PostgreSQL) cho website mầm non gồm: Tin tức, Thông báo theo khối, Thư viện ảnh/video, Form Liên hệ và hệ thống quản trị (Admin/Editor). Cấu hình Facebook (Page ID, Access Token) được lưu ở ENV; hệ thống sử dụng cron/worker để đăng bài lên Facebook ổn định.
+2. Phạm vi & giả định
+•	Chỉ đăng lên 1 Facebook Page.
+•	Token/Page ID lưu trong ENV (ví dụ: FB_PAGE_ID, FB_ACCESS_TOKEN).
+•	Publish bài viết tạo job nền; cron/worker xử lý job và retry khi lỗi.
+•	Không đưa các cấu hình giao diện (banner/highlight/theme/pages tĩnh) vào DB để tránh dư thừa.
+3. Kiểu dữ liệu & quy ước
+Quy ước chung:
+•	PK: BIGINT tự tăng; có thể bổ sung public_id (UUID) cho URL/API nếu cần.
+•	Thời gian dùng TIMESTAMPTZ (có timezone).
+•	Soft delete dùng deleted_at (TIMESTAMPTZ) cho nội dung cần khôi phục.
+•	Enum: user_role, post_type, content_status, job_type, job_status, embed_provider, contact_status.
+4. ERD
+Sơ đồ quan hệ thực thể (ERD) mức tổng quan:
+ 
+5. Data Dictionary
+Danh sách bảng và mô tả chi tiết các trường:
+5.1 Danh sách bảng
+•	- users
+•	- login_attempts
+•	- assets
+•	- blocks
+•	- posts
+•	- post_revisions
+•	- albums
+•	- album_items
+•	- video_embeds
+•	- album_videos
+•	- jobs_outbox
+•	- facebook_post_log
+•	- contact_messages
+•	- audit_log
+users
+Lưu tài khoản quản trị (Admin/Editor), phục vụ đăng nhập và phân quyền.
+Ràng buộc (constraints):
+•	UNIQUE(email)
+•	UNIQUE(public_id)
+Chỉ mục (indexes):
+•	users_public_id_uq (public_id)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính nội bộ.
+public_id	UUID	YES	gen_random_uuid()	Định danh public (nếu cần expose API).
+email	CITEXT	YES		Email đăng nhập (unique, không phân biệt hoa/thường).
+full_name	TEXT	YES		Họ tên hiển thị.
+password_hash	TEXT	YES		Mật khẩu đã hash (bcrypt/argon2).
+role	user_role	YES	'editor'	Phân quyền: admin/editor.
+is_active	BOOLEAN	YES	TRUE	Khoá/mở tài khoản.
+last_login_at	TIMESTAMPTZ	NO		Thời điểm đăng nhập gần nhất.
+created_at	TIMESTAMPTZ	YES	now()	Thời điểm tạo.
+updated_at	TIMESTAMPTZ	YES	now()	Thời điểm cập nhật.
+
+login_attempts
+Ghi nhận các lần đăng nhập (thành công/thất bại) để chống brute-force và audit bảo mật.
+Ràng buộc (constraints):
+•	FK user_id -> users(id) (ON DELETE SET NULL)
+Chỉ mục (indexes):
+•	login_attempts_email_time_idx (email, created_at DESC)
+•	login_attempts_ip_time_idx (ip, created_at DESC)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+email	CITEXT	NO		Email nhập vào (kể cả khi user chưa tồn tại).
+user_id	BIGINT (FK users.id)	NO		User tương ứng (nếu xác định được).
+ip	INET	NO		IP nguồn.
+user_agent	TEXT	NO		User-Agent trình duyệt.
+success	BOOLEAN	YES	FALSE	Kết quả đăng nhập.
+created_at	TIMESTAMPTZ	YES	now()	Thời điểm thử đăng nhập.
+ 
+assets
+Quản lý ảnh/media upload (cover, ảnh album...). Có thể dùng local hoặc S3/CDN.
+Ràng buộc (constraints):
+•	UNIQUE(public_id)
+•	FK uploaded_by -> users(id) (ON DELETE SET NULL)
+Chỉ mục (indexes):
+•	assets_created_at_idx (created_at DESC)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+public_id	UUID	YES	gen_random_uuid()	Định danh public.
+storage	TEXT	YES		Nguồn lưu: 'local' hoặc 's3'.
+bucket	TEXT	NO		Tên bucket (nếu dùng S3).
+object_key	TEXT	NO		Key/path file (nếu dùng S3/local).
+url	TEXT	NO		URL public/CDN (nếu có).
+mime_type	TEXT	YES		Kiểu file (image/jpeg...).
+byte_size	BIGINT	NO		Dung lượng file (bytes).
+width	INT	NO		Chiều rộng ảnh (px).
+height	INT	NO		Chiều cao ảnh (px).
+checksum	TEXT	NO		Checksum để chống trùng/đối soát.
+uploaded_by	BIGINT (FK users.id)	NO		Ai upload.
+created_at	TIMESTAMPTZ	YES	now()	Thời điểm upload.
+deleted_at	TIMESTAMPTZ	NO		Soft delete (nếu cần).
+blocks
+Danh mục 4 khối lớp để gắn cho Thông báo theo khối.
+Ràng buộc (constraints):
+•	UNIQUE(code)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+code	TEXT	YES		Mã khối (unique): nha_tre/mgb/mgn/mgl.
+name	TEXT	YES		Tên hiển thị.
+sort_order	INT	YES	0	Thứ tự sắp xếp.
+is_active	BOOLEAN	YES	TRUE	Bật/tắt.
+
+posts
+Lưu Tin tức và Thông báo. Tin tức (news) không thuộc khối; Thông báo (announcement) bắt buộc thuộc 1 khối.
+Ràng buộc (constraints):
+•	UNIQUE(public_id)
+•	UNIQUE(type, slug) WHERE deleted_at IS NULL
+•	CHECK: (type='announcement' => block_id NOT NULL) AND (type='news' => block_id IS NULL)
+•	FK author_id -> users(id) (ON DELETE SET NULL)
+•	FK block_id -> blocks(id) (ON DELETE RESTRICT)
+•	FK cover_asset_id/og_image_asset_id -> assets(id) (ON DELETE SET NULL)
+Chỉ mục (indexes):
+•	posts_list_news_idx (type, status, published_at DESC) WHERE type='news' AND deleted_at IS NULL
+•	posts_list_announcement_idx (type, block_id, status, published_at DESC) WHERE type='announcement' AND deleted_at IS NULL
+•	posts_search_tsv_gin (GIN(search_tsv))
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+public_id	UUID	YES	gen_random_uuid()	Định danh public.
+type	post_type	YES		news / announcement.
+status	content_status	YES	'draft'	draft/published/archived.
+title	TEXT	YES		Tiêu đề bài.
+slug	TEXT	YES		Slug URL. Unique theo (type) với record chưa xóa.
+excerpt	TEXT	NO		Tóm tắt ngắn.
+content_html	TEXT	YES		Nội dung (HTML hoặc Markdown đã render).
+cover_asset_id	BIGINT (FK assets.id)	NO		Ảnh cover.
+og_image_asset_id	BIGINT (FK assets.id)	NO		Ảnh OG khi share.
+block_id	BIGINT (FK blocks.id)	NO		Chỉ dùng cho announcement. news phải NULL.
+meta_title	TEXT	NO		SEO title (override).
+meta_description	TEXT	NO		SEO description (override).
+author_id	BIGINT (FK users.id)	NO		Tác giả/Người tạo.
+published_at	TIMESTAMPTZ	NO		Thời điểm xuất bản.
+created_at	TIMESTAMPTZ	YES	now()	Tạo lúc.
+updated_at	TIMESTAMPTZ	YES	now()	Cập nhật lúc.
+deleted_at	TIMESTAMPTZ	NO		Soft delete.
+search_tsv	TSVECTOR	NO	(trigger)	Full-text search (title/excerpt/content).
+post_revisions
+Lưu lịch sử chỉnh sửa bài viết (snapshot) để rollback và audit nội dung.
+Ràng buộc (constraints):
+•	FK post_id -> posts(id) (ON DELETE CASCADE)
+•	FK editor_id -> users(id) (ON DELETE SET NULL)
+•	FK cover_asset_id -> assets(id) (ON DELETE SET NULL)
+Chỉ mục (indexes):
+•	post_revisions_post_time_idx (post_id, created_at DESC)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+post_id	BIGINT (FK posts.id)	YES		Bài viết gốc.
+editor_id	BIGINT (FK users.id)	NO		Người chỉnh sửa.
+title	TEXT	YES		Tiêu đề tại thời điểm lưu.
+excerpt	TEXT	NO		Tóm tắt tại thời điểm lưu.
+content_html	TEXT	YES		Nội dung tại thời điểm lưu.
+cover_asset_id	BIGINT (FK assets.id)	NO		Cover tại thời điểm lưu.
+created_at	TIMESTAMPTZ	YES	now()	Thời điểm tạo revision.
+albums
+Album thư viện ảnh/video (tiêu đề, slug, trạng thái).
+Ràng buộc (constraints):
+•	UNIQUE(public_id)
+•	UNIQUE(slug) WHERE deleted_at IS NULL
+•	FK cover_asset_id -> assets(id) (ON DELETE SET NULL)
+•	FK created_by -> users(id) (ON DELETE SET NULL)
+Chỉ mục (indexes):
+•	albums_list_idx (status, created_at DESC) WHERE deleted_at IS NULL
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+public_id	UUID	YES	gen_random_uuid()	Định danh public.
+title	TEXT	YES		Tên album.
+slug	TEXT	YES		Slug URL (unique với record chưa xóa).
+description	TEXT	NO		Mô tả album.
+cover_asset_id	BIGINT (FK assets.id)	NO		Ảnh cover album.
+status	content_status	YES	'published'	draft/published/archived.
+created_by	BIGINT (FK users.id)	NO		Người tạo.
+created_at	TIMESTAMPTZ	YES	now()	Tạo lúc.
+updated_at	TIMESTAMPTZ	YES	now()	Cập nhật lúc.
+deleted_at	TIMESTAMPTZ	NO		Soft delete.
+album_items
+Danh sách ảnh thuộc album và thứ tự hiển thị.
+Ràng buộc (constraints):
+•	FK album_id -> albums(id) (ON DELETE CASCADE)
+•	FK asset_id -> assets(id) (ON DELETE RESTRICT)
+•	UNIQUE(album_id, position)
+•	UNIQUE(album_id, asset_id)
+Chỉ mục (indexes):
+•	album_items_album_pos_idx (album_id, position)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+album_id	BIGINT (FK albums.id)	YES		Album.
+asset_id	BIGINT (FK assets.id)	YES		Ảnh.
+position	INT	YES	0	Thứ tự trong album.
+caption	TEXT	NO		Chú thích ảnh.
+created_at	TIMESTAMPTZ	YES	now()	Thời điểm thêm ảnh vào album.
+video_embeds
+Lưu video nhúng (YouTube/Facebook) để hiển thị trên website.
+Ràng buộc (constraints):
+•	UNIQUE(public_id)
+•	FK created_by -> users(id) (ON DELETE SET NULL)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+public_id	UUID	YES	gen_random_uuid()	Định danh public.
+provider	embed_provider	YES		youtube/facebook.
+url	TEXT	YES		Link video để nhúng.
+title	TEXT	NO		Tiêu đề (tuỳ chọn).
+thumbnail_url	TEXT	NO		Ảnh thumbnail (tuỳ chọn).
+created_by	BIGINT (FK users.id)	NO		Người tạo.
+created_at	TIMESTAMPTZ	YES	now()	Tạo lúc.
+album_videos
+Gắn video vào album và sắp xếp thứ tự.
+Ràng buộc (constraints):
+•	FK album_id -> albums(id) (ON DELETE CASCADE)
+•	FK video_id -> video_embeds(id) (ON DELETE RESTRICT)
+•	UNIQUE(album_id, position)
+•	UNIQUE(album_id, video_id)
+Chỉ mục (indexes):
+•	album_videos_album_pos_idx (album_id, position)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+album_id	BIGINT (FK albums.id)	YES		Album.
+video_id	BIGINT (FK video_embeds.id)	YES		Video nhúng.
+position	INT	YES	0	Thứ tự hiển thị.
+jobs_outbox
+Hàng đợi job nền để đăng Facebook ổn định (retry, lock).
+Ràng buộc (constraints):
+•	Index pick job: (status, run_after, id) WHERE status IN ('queued','failed')
+Chỉ mục (indexes):
+•	jobs_outbox_pick_idx (status, run_after, id) WHERE status IN ('queued','failed')
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+type	job_type	YES		post_to_facebook (có thể mở rộng).
+status	job_status	YES	'queued'	queued/processing/succeeded/failed/dead.
+payload	JSONB	YES	'{}'	Dữ liệu job (ví dụ {post_id}).
+run_after	TIMESTAMPTZ	YES	now()	Chạy sau thời điểm này.
+locked_at	TIMESTAMPTZ	NO		Thời điểm lock.
+locked_by	TEXT	NO		ID worker đang giữ job.
+attempt_count	INT	YES	0	Số lần thử.
+last_error	TEXT	NO		Lỗi gần nhất.
+created_at	TIMESTAMPTZ	YES	now()	Tạo lúc.
+updated_at	TIMESTAMPTZ	YES	now()	Cập nhật lúc.
+facebook_post_log
+Nhật ký đăng Facebook theo từng bài (chống đăng trùng, lưu lỗi, debug). Token/PageID để trong ENV.
+Ràng buộc (constraints):
+•	UNIQUE(post_id)
+•	FK post_id -> posts(id) (ON DELETE CASCADE)
+Chỉ mục (indexes):
+•	facebook_post_log_status_idx (status, updated_at DESC)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+post_id	BIGINT (FK posts.id)	YES		Bài viết đã publish.
+status	job_status	YES	'queued'	Trạng thái đăng FB.
+fb_post_id	TEXT	NO		ID bài đã tạo trên Facebook.
+request_payload	JSONB	NO		Payload gửi Facebook (tuỳ chọn).
+response_payload	JSONB	NO		Response từ Facebook (tuỳ chọn).
+error_message	TEXT	NO		Lỗi nếu thất bại.
+attempt_count	INT	YES	0	Số lần thử đăng.
+last_attempt_at	TIMESTAMPTZ	NO		Lần thử gần nhất.
+created_at	TIMESTAMPTZ	YES	now()	Tạo lúc.
+updated_at	TIMESTAMPTZ	YES	now()	Cập nhật lúc.
+contact_messages
+Lưu dữ liệu form Liên hệ, kèm thông tin chống spam cơ bản.
+Chỉ mục (indexes):
+•	contact_messages_status_time_idx (status, created_at DESC)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+full_name	TEXT	YES		Họ tên.
+phone	TEXT	NO		Số điện thoại.
+email	CITEXT	NO		Email.
+message	TEXT	YES		Nội dung liên hệ.
+status	contact_status	YES	'new'	new/handled/spam.
+ip	INET	NO		IP gửi form.
+user_agent	TEXT	NO		User-Agent.
+spam_score	REAL	NO		Điểm spam (nếu có heuristic/captcha).
+created_at	TIMESTAMPTZ	YES	now()	Thời điểm gửi.
+audit_log
+Nhật ký thao tác trong admin (ai làm gì với entity nào). Hữu ích khi cần truy vết.
+Ràng buộc (constraints):
+•	FK actor_id -> users(id) (ON DELETE SET NULL)
+Chỉ mục (indexes):
+•	audit_log_entity_idx (entity_type, entity_id, created_at DESC)
+Các trường:
+Field	Type	Bắt buộc	Default	Mô tả
+id	BIGINT (PK)	YES	auto	Khoá chính.
+actor_id	BIGINT (FK users.id)	NO		Ai thao tác.
+action	TEXT	YES		Ví dụ: create_post/update_post/publish_post...
+entity_type	TEXT	YES		Ví dụ: post/album/asset...
+entity_id	BIGINT	NO		ID entity (tuỳ loại).
+diff	JSONB	NO		Các thay đổi (tuỳ chọn).
+ip	INET	NO		IP thao tác.
+created_at	TIMESTAMPTZ	YES	now()	Thời điểm thao tác.
+6. Biến môi trường (ENV) khuyến nghị
+•	FB_PAGE_ID: ID Facebook Page cần đăng.
+•	FB_ACCESS_TOKEN: Page access token (bảo mật).
+•	FB_API_VERSION: Tuỳ chọn, ví dụ v19.0.
+•	APP_BASE_URL: URL website để gắn link khi đăng FB.
