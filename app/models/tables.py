@@ -17,7 +17,11 @@ from .enums import (
     UserRole,
 )
 
-user_role_enum = sa.Enum(UserRole, name="user_role")
+user_role_enum = sa.Enum(
+    UserRole,
+    name="user_role",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
 post_type_enum = sa.Enum(PostType, name="post_type")
 content_status_enum = sa.Enum(ContentStatus, name="content_status")
 job_type_enum = sa.Enum(JobType, name="job_type")
@@ -126,10 +130,11 @@ class Block(Base):
 class Post(Base):
     __tablename__ = "posts"
     __table_args__ = (
-        sa.UniqueConstraint(
+        sa.Index(
+            "uq_posts_type_slug_active",
             "type",
             "slug",
-            name="uq_posts_type_slug_active",
+            unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
         sa.CheckConstraint(
@@ -238,9 +243,10 @@ class PostRevision(Base):
 class Album(Base):
     __tablename__ = "albums"
     __table_args__ = (
-        sa.UniqueConstraint(
+        sa.Index(
+            "uq_albums_slug_active",
             "slug",
-            name="uq_albums_slug_active",
+            unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
         sa.Index(
