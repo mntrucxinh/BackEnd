@@ -22,12 +22,36 @@ user_role_enum = sa.Enum(
     name="user_role",
     values_callable=lambda enum_cls: [e.value for e in enum_cls],
 )
-post_type_enum = sa.Enum(PostType, name="post_type")
-content_status_enum = sa.Enum(ContentStatus, name="content_status")
-job_type_enum = sa.Enum(JobType, name="job_type")
-job_status_enum = sa.Enum(JobStatus, name="job_status")
-embed_provider_enum = sa.Enum(EmbedProvider, name="embed_provider")
-contact_status_enum = sa.Enum(ContactStatus, name="contact_status")
+post_type_enum = sa.Enum(
+    PostType,
+    name="post_type",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+content_status_enum = sa.Enum(
+    ContentStatus,
+    name="content_status",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+job_type_enum = sa.Enum(
+    JobType,
+    name="job_type",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+job_status_enum = sa.Enum(
+    JobStatus,
+    name="job_status",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+embed_provider_enum = sa.Enum(
+    EmbedProvider,
+    name="embed_provider",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+contact_status_enum = sa.Enum(
+    ContactStatus,
+    name="contact_status",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
 
 
 class User(Base):
@@ -235,6 +259,30 @@ class PostRevision(Base):
     cover_asset_id: Mapped[Optional[int]] = mapped_column(
         sa.BigInteger, sa.ForeignKey("assets.id", ondelete="SET NULL")
     )
+    created_at: Mapped[sa.DateTime] = mapped_column(
+        sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class PostAsset(Base):
+    __tablename__ = "post_assets"
+    __table_args__ = (
+        sa.UniqueConstraint("post_id", "position", name="uq_post_assets_post_pos"),
+        sa.UniqueConstraint("post_id", "asset_id", name="uq_post_assets_post_asset"),
+        sa.Index("post_assets_post_pos_idx", "post_id", "position"),
+    )
+
+    id: Mapped[int] = mapped_column(sa.BigInteger, primary_key=True)
+    post_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("posts.id", ondelete="CASCADE"), nullable=False
+    )
+    asset_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default=text("0")
+    )
+    caption: Mapped[Optional[str]] = mapped_column(sa.Text)
     created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )

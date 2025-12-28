@@ -19,6 +19,7 @@ class ContentStatus(str, enum.Enum):
 
 class JobType(str, enum.Enum):
     POST_TO_FACEBOOK = "post_to_facebook"
+    POST_TO_FACEBOOK_AND_YOUTUBE = "post_to_facebook_and_youtube"
 
 
 class JobStatus(str, enum.Enum):

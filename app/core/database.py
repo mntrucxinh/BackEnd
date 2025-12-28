@@ -1,7 +1,8 @@
 import os
+from typing import Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from dotenv import load_dotenv
 
 from app.models import Base
@@ -21,3 +22,12 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 def init_db() -> None:
     """Create tables based on SQLAlchemy models (mainly for local quickstart)."""
     Base.metadata.create_all(bind=engine)
+
+
+def get_db() -> Generator[Session, None, None]:
+    """SQLAlchemy session dependency for FastAPI routes."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
