@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.routes.admin import assets as admin_assets, news as admin_news
+from app.api.routes import auth
 from app.core.database import get_db
 from app.core.errors import register_exception_handlers
 from app.core.seed import seed_data
@@ -60,3 +61,5 @@ def health(db: Session = Depends(get_db)) -> dict:
 # Admin API routes
 app.include_router(admin_news.router)
 app.include_router(admin_assets.router)
+# Auth routes
+app.include_router(auth.router)

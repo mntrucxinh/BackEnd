@@ -3,7 +3,6 @@ import enum
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
-    EDITOR = "editor"
 
 
 class PostType(str, enum.Enum):

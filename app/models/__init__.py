@@ -6,7 +6,6 @@ from .enums import (
     JobStatus,
     JobType,
     PostType,
-    UserRole,
 )
 from .tables import (
     Album,
@@ -48,6 +47,5 @@ __all__ = [
     "PostRevision",
     "PostType",
     "User",
-    "UserRole",
     "VideoEmbed",
 ]

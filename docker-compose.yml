@@ -18,15 +18,15 @@ services:
       timeout: 5s
       retries: 5
 
-  adminer:
-    image: adminer:4
-    restart: unless-stopped
-    depends_on:
-      - db
-    ports:
-      - "8080:8080"
-    environment:
-      ADMINER_DEFAULT_SERVER: db
+  # adminer:
+  #   image: adminer:4
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - db
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     ADMINER_DEFAULT_SERVER: db
 
 volumes:
   postgres_data:

@@ -14,14 +14,8 @@ from .enums import (
     JobStatus,
     JobType,
     PostType,
-    UserRole,
 )
 
-user_role_enum = sa.Enum(
-    UserRole,
-    name="user_role",
-    values_callable=lambda enum_cls: [e.value for e in enum_cls],
-)
 post_type_enum = sa.Enum(
     PostType,
     name="post_type",
@@ -65,17 +59,19 @@ class User(Base):
         server_default=text("gen_random_uuid()"),
     )
     email: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)
-    full_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    password_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    role: Mapped[UserRole] = mapped_column(
-        user_role_enum, nullable=False, server_default=UserRole.EDITOR.value
+    google_sub: Mapped[Optional[str]] = mapped_column(
+        sa.Text, unique=True, nullable=True
     )
-    is_active: Mapped[bool] = mapped_column(
-        sa.Boolean, nullable=False, server_default=text("TRUE")
-    )
-    last_login_at: Mapped[Optional[sa.DateTime]] = mapped_column(
+    google_id_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    google_id_token_expires_at: Mapped[Optional[sa.DateTime]] = mapped_column(
         sa.TIMESTAMP(timezone=True)
     )
+    google_access_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    google_access_token_expires_at: Mapped[Optional[sa.DateTime]] = mapped_column(
+        sa.TIMESTAMP(timezone=True)
+    )
+    google_refresh_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    google_token_scope: Mapped[Optional[str]] = mapped_column(sa.Text)
     created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
