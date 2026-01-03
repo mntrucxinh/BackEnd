@@ -80,28 +80,6 @@ class User(Base):
     )
 
 
-class LoginAttempt(Base):
-    __tablename__ = "login_attempts"
-    __table_args__ = (
-        sa.Index("login_attempts_email_time_idx", "email", sa.text("created_at DESC")),
-        sa.Index("login_attempts_ip_time_idx", "ip", sa.text("created_at DESC")),
-    )
-
-    id: Mapped[int] = mapped_column(sa.BigInteger, primary_key=True)
-    email: Mapped[Optional[str]] = mapped_column(CITEXT())
-    user_id: Mapped[Optional[int]] = mapped_column(
-        sa.BigInteger, sa.ForeignKey("users.id", ondelete="SET NULL")
-    )
-    ip: Mapped[Optional[str]] = mapped_column(INET)
-    user_agent: Mapped[Optional[str]] = mapped_column(sa.Text)
-    success: Mapped[bool] = mapped_column(
-        sa.Boolean, nullable=False, server_default=text("FALSE")
-    )
-    created_at: Mapped[sa.DateTime] = mapped_column(
-        sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-
-
 class Asset(Base):
     __tablename__ = "assets"
     __table_args__ = (sa.Index("assets_created_at_idx", sa.text("created_at DESC")),)

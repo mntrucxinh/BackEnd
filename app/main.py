@@ -7,6 +7,8 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.routes.admin import assets as admin_assets, news as admin_news
 from app.api.routes import auth
 from app.core.database import get_db
@@ -18,6 +20,26 @@ load_dotenv()
 
 app = FastAPI(title="Preschool Site API", version="0.1.0")
 register_exception_handlers(app)
+
+frontend_origins = os.getenv("FRONTEND_ORIGINS", "*")
+allow_origins = ["*"]
+if frontend_origins and frontend_origins.strip() != "*":
+    allow_origins = [o.strip() for o in frontend_origins.split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    response = await call_next(request)
+    print(f"{request.method} {request.url.path} -> {response.status_code}")
+    return response
 
 
 @app.on_event("startup")
@@ -42,6 +64,7 @@ async def startup_event():
 
         # Seed dữ liệu ban đầu
         seed_data()
+        print("✅ Application startup complete")
     except Exception as e:
         print(f"⚠️  Warning: Could not run migrations or seed data: {e}")
         print("   Make sure database is running and DATABASE_URL is set correctly")

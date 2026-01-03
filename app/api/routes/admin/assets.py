@@ -6,14 +6,14 @@ API endpoints để upload assets (ảnh và video).
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, File, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.asset import AssetOut
-from app.services import asset_service, youtube_service
+from app.services import asset_service
 
 router = APIRouter(prefix="/admin/assets", tags=["Admin - Assets"])
 
@@ -48,35 +48,4 @@ async def upload_asset(
         width=asset.width,
         height=asset.height,
     )
-
-
-@router.post("/{asset_id}/youtube", status_code=status.HTTP_201_CREATED)
-def upload_asset_to_youtube(
-    asset_id: int,
-    db: Session = Depends(get_db),
-    title: Optional[str] = Body(None),
-    description: Optional[str] = Body(None),
-    tags: Optional[List[str]] = Body(None),
-    privacy_status: str = Body("unlisted"),
-    user_email: Optional[str] = Body(
-        None, description="Email user có token Google. Nếu bỏ trống sẽ lấy user đầu tiên."
-    ),
-) -> dict:
-    """
-    Upload một asset video lên YouTube bằng access token đã lưu.
-
-    Yêu cầu:
-    - Asset là video và file tồn tại trong UPLOAD_DIR.
-    - Đã login Google và lưu access_token (và refresh_token nếu cần refresh).
-    """
-    vid = youtube_service.upload_asset_to_youtube(
-        db,
-        asset_id=asset_id,
-        title=title,
-        description=description,
-        tags=tags,
-        privacy_status=privacy_status,
-        user_email=user_email,
-    )
-    return {"youtube_video_id": vid}
 

@@ -9,16 +9,6 @@ def seed_data() -> None:
     """Seed dữ liệu mẫu vào database nếu chưa có."""
     db: Session = SessionLocal()
     try:
-        # Kiểm tra và seed User admin nếu chưa có
-        admin_user = db.query(User).filter(User.email == "admin@example.com").first()
-        if not admin_user:
-            # Tạo user admin mẫu
-            admin_user = User(
-                email="admin@example.com",
-            )
-            db.add(admin_user)
-            print("✅ Seeded admin user (email: admin@example.com)")
-
         # Kiểm tra và seed Blocks nếu chưa có
         blocks_count = db.query(Block).count()
         if blocks_count == 0:
