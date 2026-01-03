@@ -14,20 +14,38 @@ from .enums import (
     JobStatus,
     JobType,
     PostType,
-    UserRole,
 )
 
-user_role_enum = sa.Enum(
-    UserRole,
-    name="user_role",
+post_type_enum = sa.Enum(
+    PostType,
+    name="post_type",
     values_callable=lambda enum_cls: [e.value for e in enum_cls],
 )
-post_type_enum = sa.Enum(PostType, name="post_type")
-content_status_enum = sa.Enum(ContentStatus, name="content_status")
-job_type_enum = sa.Enum(JobType, name="job_type")
-job_status_enum = sa.Enum(JobStatus, name="job_status")
-embed_provider_enum = sa.Enum(EmbedProvider, name="embed_provider")
-contact_status_enum = sa.Enum(ContactStatus, name="contact_status")
+content_status_enum = sa.Enum(
+    ContentStatus,
+    name="content_status",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+job_type_enum = sa.Enum(
+    JobType,
+    name="job_type",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+job_status_enum = sa.Enum(
+    JobStatus,
+    name="job_status",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+embed_provider_enum = sa.Enum(
+    EmbedProvider,
+    name="embed_provider",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
+contact_status_enum = sa.Enum(
+    ContactStatus,
+    name="contact_status",
+    values_callable=lambda enum_cls: [e.value for e in enum_cls],
+)
 
 
 class User(Base):
@@ -41,43 +59,23 @@ class User(Base):
         server_default=text("gen_random_uuid()"),
     )
     email: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)
-    full_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    password_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    role: Mapped[UserRole] = mapped_column(
-        user_role_enum, nullable=False, server_default=UserRole.EDITOR.value
+    google_sub: Mapped[Optional[str]] = mapped_column(
+        sa.Text, unique=True, nullable=True
     )
-    is_active: Mapped[bool] = mapped_column(
-        sa.Boolean, nullable=False, server_default=text("TRUE")
-    )
-    last_login_at: Mapped[Optional[sa.DateTime]] = mapped_column(
+    google_id_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    google_id_token_expires_at: Mapped[Optional[sa.DateTime]] = mapped_column(
         sa.TIMESTAMP(timezone=True)
     )
+    google_access_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    google_access_token_expires_at: Mapped[Optional[sa.DateTime]] = mapped_column(
+        sa.TIMESTAMP(timezone=True)
+    )
+    google_refresh_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    google_token_scope: Mapped[Optional[str]] = mapped_column(sa.Text)
     created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_at: Mapped[sa.DateTime] = mapped_column(
-        sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-
-
-class LoginAttempt(Base):
-    __tablename__ = "login_attempts"
-    __table_args__ = (
-        sa.Index("login_attempts_email_time_idx", "email", sa.text("created_at DESC")),
-        sa.Index("login_attempts_ip_time_idx", "ip", sa.text("created_at DESC")),
-    )
-
-    id: Mapped[int] = mapped_column(sa.BigInteger, primary_key=True)
-    email: Mapped[Optional[str]] = mapped_column(CITEXT())
-    user_id: Mapped[Optional[int]] = mapped_column(
-        sa.BigInteger, sa.ForeignKey("users.id", ondelete="SET NULL")
-    )
-    ip: Mapped[Optional[str]] = mapped_column(INET)
-    user_agent: Mapped[Optional[str]] = mapped_column(sa.Text)
-    success: Mapped[bool] = mapped_column(
-        sa.Boolean, nullable=False, server_default=text("FALSE")
-    )
-    created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
 
@@ -235,6 +233,30 @@ class PostRevision(Base):
     cover_asset_id: Mapped[Optional[int]] = mapped_column(
         sa.BigInteger, sa.ForeignKey("assets.id", ondelete="SET NULL")
     )
+    created_at: Mapped[sa.DateTime] = mapped_column(
+        sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class PostAsset(Base):
+    __tablename__ = "post_assets"
+    __table_args__ = (
+        sa.UniqueConstraint("post_id", "position", name="uq_post_assets_post_pos"),
+        sa.UniqueConstraint("post_id", "asset_id", name="uq_post_assets_post_asset"),
+        sa.Index("post_assets_post_pos_idx", "post_id", "position"),
+    )
+
+    id: Mapped[int] = mapped_column(sa.BigInteger, primary_key=True)
+    post_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("posts.id", ondelete="CASCADE"), nullable=False
+    )
+    asset_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default=text("0")
+    )
+    caption: Mapped[Optional[str]] = mapped_column(sa.Text)
     created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )

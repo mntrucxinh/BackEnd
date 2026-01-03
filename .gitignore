@@ -16,8 +16,13 @@ dist/
 
 # Ignore local config files
 *.env
+.env
 *.ini
 *.log
+
+# Allow .env.example (template file)
+!.env.example
+env.example
 
 # Ignore IDE/editor files
 .vscode/

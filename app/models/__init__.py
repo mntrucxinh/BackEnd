@@ -6,7 +6,6 @@ from .enums import (
     JobStatus,
     JobType,
     PostType,
-    UserRole,
 )
 from .tables import (
     Album,
@@ -18,8 +17,8 @@ from .tables import (
     ContactMessage,
     FacebookPostLog,
     JobOutbox,
-    LoginAttempt,
     Post,
+    PostAsset,
     PostRevision,
     User,
     VideoEmbed,
@@ -41,11 +40,10 @@ __all__ = [
     "JobOutbox",
     "JobStatus",
     "JobType",
-    "LoginAttempt",
     "Post",
+    "PostAsset",
     "PostRevision",
     "PostType",
     "User",
-    "UserRole",
     "VideoEmbed",
 ]
