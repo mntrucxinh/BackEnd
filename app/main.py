@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.ratelimit import RATE_LIMIT_RULES, RateLimiter
 from app.api.routes.admin import assets as admin_assets, news as admin_news
 from app.api.routes import auth
 from app.core.database import get_db
@@ -20,6 +21,7 @@ load_dotenv()
 
 app = FastAPI(title="Preschool Site API", version="0.1.0")
 register_exception_handlers(app)
+rate_limiter = RateLimiter(RATE_LIMIT_RULES)
 
 frontend_origins = os.getenv("FRONTEND_ORIGINS", "*")
 allow_origins = ["*"]
@@ -37,6 +39,11 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(request, call_next):
+    # Rate limit đầu vào theo rule
+    rate_limit_response = rate_limiter.check(request)
+    if rate_limit_response:
+        return rate_limit_response
+
     response = await call_next(request)
     print(f"{request.method} {request.url.path} -> {response.status_code}")
     return response
