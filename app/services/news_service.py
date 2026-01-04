@@ -168,6 +168,11 @@ def _publish_to_facebook(
     """
     Đăng bài viết lên Facebook khi publish.
     
+    Logic:
+    - Có video → chỉ đăng video (bỏ qua ảnh)
+    - Không có video nhưng có ảnh → đăng ảnh
+    - Không có cả 2 → đăng text
+    
     Args:
         db: Database session
         post: Post object đã được tạo/cập nhật
@@ -175,7 +180,18 @@ def _publish_to_facebook(
     """
     post_url = f"{os.getenv('APP_BASE_URL', 'https://your-site.com')}/news/{post.slug}"
     
+    log_context = {
+        "post_id": post.id,
+        "post_slug": post.slug,
+        "post_title": post.title,
+    }
+    
     try:
+        logger.info(
+            "Starting Facebook publish",
+            extra={**log_context, "action": "facebook_publish_start"}
+        )
+        
         # Lấy content assets
         all_assets = []
         if content_asset_public_ids:
@@ -193,31 +209,66 @@ def _publish_to_facebook(
             None,
         )
         
+        logger.debug(
+            "Assets classified for Facebook",
+            extra={
+                **log_context,
+                "total_assets": len(all_assets),
+                "image_count": len(fb_images),
+                "has_video": fb_video is not None,
+            }
+        )
+        
         if fb_video:
-            # Có video → upload video lên Facebook
+            # Có video → chỉ đăng video (bỏ qua ảnh)
+            logger.info(
+                "Publishing video to Facebook",
+                extra={**log_context, "video_asset_id": fb_video.id, "media_type": "video"}
+            )
             fb_post_id = upload_video_to_facebook(post, fb_video, post_url)
-            logger.info(f"Uploaded video to Facebook: {fb_post_id}")
+            logger.info(
+                "Video published to Facebook successfully",
+                extra={**log_context, "facebook_post_id": fb_post_id, "media_type": "video"}
+            )
         elif fb_images:
             # Có ảnh → upload ảnh lên Facebook
+            logger.info(
+                "Publishing images to Facebook",
+                extra={**log_context, "image_count": len(fb_images), "media_type": "images"}
+            )
             fb_post_id = upload_images_to_facebook(
                 post=post,
                 post_url=post_url,
                 content_assets=fb_images,
             )
-            logger.info(f"Posted images to Facebook: {fb_post_id}")
+            logger.info(
+                "Images published to Facebook successfully",
+                extra={**log_context, "facebook_post_id": fb_post_id, "media_type": "images"}
+            )
         else:
             # Chỉ có text → đăng text
+            logger.info(
+                "Publishing text-only post to Facebook",
+                extra={**log_context, "media_type": "text"}
+            )
             fb_post_id = upload_images_to_facebook(
                 post=post,
                 post_url=post_url,
                 content_assets=[],
             )
-            logger.info(f"Posted text to Facebook: {fb_post_id}")
+            logger.info(
+                "Text post published to Facebook successfully",
+                extra={**log_context, "facebook_post_id": fb_post_id, "media_type": "text"}
+            )
             
     except Exception as e:
         # Rollback transaction nếu Facebook fail
         db.rollback()
-        logger.error(f"Failed to post to Facebook: {e}", exc_info=True)
+        logger.error(
+            "Failed to publish post to Facebook",
+            extra={**log_context, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -288,8 +339,15 @@ def get_news_detail(db: Session, news_id: int) -> NewsOut:
 
 
 def create_news(db: Session, payload: NewsCreate) -> NewsOut:
+    """Tạo bài viết mới."""
+    logger.info(
+        "Creating new news post",
+        extra={"action": "create_news", "title": payload.title, "status": payload.status.value}
+    )
+    
     slug = payload.slug or slugify(payload.title)
     if not slug:
+        logger.warning("Failed to generate slug from title", extra={"title": payload.title})
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -317,6 +375,11 @@ def create_news(db: Session, payload: NewsCreate) -> NewsOut:
     db.add(post)
     db.flush()
 
+    logger.debug(
+        "Post created, adding assets",
+        extra={"post_id": post.id, "asset_count": len(payload.content_asset_public_ids or [])}
+    )
+
     # Lưu content_assets
     if payload.content_asset_public_ids:
         asset_ids = _resolve_asset_ids(db, payload.content_asset_public_ids)
@@ -343,10 +406,19 @@ def create_news(db: Session, payload: NewsCreate) -> NewsOut:
 
     db.commit()
     db.refresh(post)
+    
+    logger.info(
+        "News post created successfully",
+        extra={"post_id": post.id, "slug": post.slug, "status": post.status.value}
+    )
+    
     return _to_news_out(db, post)
 
 
 def update_news(db: Session, news_id: int, payload: NewsUpdate) -> NewsOut:
+    """Cập nhật bài viết."""
+    logger.info("Updating news post", extra={"action": "update_news", "news_id": news_id})
+    
     post = _get_news_or_404(db, news_id)
 
     if payload.title is not None:
@@ -441,14 +513,25 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate) -> NewsOut:
 
     db.commit()
     db.refresh(post)
+    
+    logger.info(
+        "News post updated successfully",
+        extra={"post_id": post.id, "slug": post.slug, "status": post.status.value}
+    )
+    
     return _to_news_out(db, post)
 
 
 def delete_news(db: Session, news_id: int) -> None:
+    """Xóa bài viết (soft delete)."""
+    logger.info("Deleting news post", extra={"action": "delete_news", "news_id": news_id})
+    
     post = _get_news_or_404(db, news_id)
     post.deleted_at = datetime.now(timezone.utc)
     db.add(post)
     db.commit()
+    
+    logger.info("News post deleted successfully", extra={"post_id": post.id, "slug": post.slug})
 
 
 def check_slug_unique(
