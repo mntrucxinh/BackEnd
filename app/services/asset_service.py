@@ -18,7 +18,13 @@ from PIL import Image
 from app.models.tables import Asset
 
 # Cấu hình thư mục lưu trữ
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploads"))
+# Nếu có UPLOAD_DIR env thì dùng, không thì dùng relative path (cho local dev)
+upload_dir_env = os.getenv("UPLOAD_DIR")
+if upload_dir_env:
+    UPLOAD_DIR = Path(upload_dir_env)
+else:
+    # Relative path cho local development
+    UPLOAD_DIR = Path("uploads")
 IMAGES_DIR = UPLOAD_DIR / "images"
 VIDEOS_DIR = UPLOAD_DIR / "videos"
 
