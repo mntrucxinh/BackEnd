@@ -14,7 +14,8 @@ from app.schemas.news import (
     NewsUpdate,
     SlugCheckOut,
 )
-from app.services import asset_service, news_service
+from app.services import asset_service
+from app.services.admin import news_service
 
 
 router = APIRouter(prefix="/admin/news", tags=["Admin - News"])
@@ -60,7 +61,6 @@ async def create_news(
     excerpt: Optional[str] = Form(None, description="Mô tả ngắn"),
     content_html: str = Form(..., description="Nội dung HTML"),
     status: ContentStatus = Form(ContentStatus.DRAFT, description="Trạng thái: draft/published/archived"),
-    slug: Optional[str] = Form(None, description="URL slug (tự động sinh nếu bỏ trống)"),
     
     # Files - upload tất cả, hiển thị theo thứ tự
     files: Optional[List[UploadFile]] = File(
@@ -81,8 +81,11 @@ async def create_news(
     **Luồng:**
     1. Upload tất cả files → tạo Assets
     2. Tất cả files đều được lưu vào content_assets theo thứ tự upload
-    3. Tạo Post
+    3. Tạo Post (slug tự động sinh từ title)
     4. Tự động đăng Facebook nếu publish (ảnh hoặc video)
+    
+    **Slug:**
+    - Slug tự động sinh từ title, không cần truyền vào
     
     **Files:**
     - Upload gì → hiển thị cái đó trong content
@@ -103,13 +106,13 @@ async def create_news(
             asset = await asset_service.upload_asset(db, file, user_id)
             content_asset_ids.append(asset.public_id)
     
-    # Tạo payload
+    # Tạo payload - slug sẽ tự động sinh từ title trong service
     payload = NewsCreate(
         title=title,
         excerpt=excerpt,
         content_html=content_html,
         status=status,
-        slug=slug,
+        slug=None,  # Luôn None để tự động sinh từ title
         content_asset_public_ids=content_asset_ids if content_asset_ids else None,
         meta_title=meta_title,
         meta_description=meta_description,

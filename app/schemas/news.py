@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import ContentStatus
-from app.schemas.asset import PostAssetOut
+from app.schemas.asset import PostAssetOut, PublicPostAssetOut
 
 
 class NewsBase(BaseModel):
@@ -94,4 +94,33 @@ class SlugCheckOut(BaseModel):
     is_unique: bool
     normalized_slug: str
 
+
+# ============================================================================
+# Public API schemas (chỉ trả về public_id, không có id nội bộ)
+# ============================================================================
+
+class PublicNewsOut(BaseModel):
+    """Schema cho public API - chỉ trả về public_id, không có id nội bộ và status."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    public_id: UUID = Field(..., description="UUID công khai của bài viết.")
+    title: str
+    slug: str
+    excerpt: Optional[str]
+    content_html: str
+    meta_title: Optional[str]
+    meta_description: Optional[str]
+    content_assets: Optional[list[PublicPostAssetOut]] = Field(
+        default=None,
+        description="Danh sách ảnh trong nội dung bài viết (theo thứ tự).",
+    )
+    published_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+
+class PublicNewsListOut(BaseModel):
+    items: list[PublicNewsOut]
+    meta: NewsListMeta
 

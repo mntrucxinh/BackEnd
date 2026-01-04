@@ -233,8 +233,13 @@ def upload_video_to_facebook(
             f"5. Update FB_ACCESS_TOKEN trong .env"
         )
     
-    # Lấy đường dẫn file video
-    upload_dir = Path(os.getenv("UPLOAD_DIR", "/app/uploads"))
+    # Lấy đường dẫn file video - dùng cùng logic với asset_service
+    upload_dir_env = os.getenv("UPLOAD_DIR")
+    if upload_dir_env:
+        upload_dir = Path(upload_dir_env)
+    else:
+        # Relative path cho local development
+        upload_dir = Path("uploads")
     video_path = upload_dir / video_asset.url.lstrip("/uploads/")
     
     if not video_path.exists():
@@ -449,7 +454,13 @@ def upload_images_to_facebook(
     
     # Upload ảnh lên Facebook
     photo_ids = []
-    upload_dir = Path(os.getenv("UPLOAD_DIR", "/app/uploads"))
+    # Dùng cùng logic với asset_service
+    upload_dir_env = os.getenv("UPLOAD_DIR")
+    if upload_dir_env:
+        upload_dir = Path(upload_dir_env)
+    else:
+        # Relative path cho local development
+        upload_dir = Path("uploads")
     
     for asset in all_images[:10]:  # Facebook cho phép tối đa 10 ảnh
         if not asset or not asset.url:
@@ -458,6 +469,19 @@ def upload_images_to_facebook(
         try:
             # Thử upload từ file trước (hỗ trợ localhost)
             image_path = upload_dir / asset.url.lstrip("/uploads/")
+            
+            logger.debug(
+                "Checking image file for Facebook upload",
+                extra={
+                    "action": "upload_images",
+                    "post_id": post.id,
+                    "asset_id": asset.id,
+                    "asset_url": asset.url,
+                    "image_path": str(image_path),
+                    "path_exists": image_path.exists(),
+                    "upload_dir": str(upload_dir),
+                }
+            )
             
             if image_path.exists():
                 # Upload từ file (tốt hơn cho localhost)

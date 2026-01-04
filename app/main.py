@@ -3,7 +3,10 @@ import os
 from alembic import command
 from alembic.config import Config
 from dotenv import load_dotenv
+from pathlib import Path
+
 from fastapi import Depends, FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -12,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.ratelimit import RATE_LIMIT_RULES, RateLimiter
 from app.api.routes.admin import assets as admin_assets, news as admin_news
 from app.api.routes import auth
+from app.api.routes.user import announcements as user_announcements, news as user_news
 from app.core.database import get_db
 from app.core.errors import register_exception_handlers
 from app.core.seed import seed_data
@@ -93,3 +97,12 @@ app.include_router(admin_news.router)
 app.include_router(admin_assets.router)
 # Auth routes
 app.include_router(auth.router)
+# Public/User API routes
+app.include_router(user_news.router)
+app.include_router(user_announcements.router)
+
+# Mount static files để serve uploads
+# Dùng cùng UPLOAD_DIR với asset_service
+from app.services.asset_service import UPLOAD_DIR
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
