@@ -35,6 +35,7 @@ def google_login(
         message = "Token đã hết hạn; hãy đăng nhập lại Google để lấy token mới."
 
     tokens = auth_service.issue_app_tokens(user)
+    user = auth_service.store_app_tokens(db, user, tokens)
     auth_service.set_refresh_cookie(
         response, tokens["refresh_token"], tokens["refresh_expires_at"]
     )
@@ -49,8 +50,8 @@ def google_login(
         token_expires_at=exp_dt,
         token_is_valid=is_valid,
         access_token_expires_at=user.google_access_token_expires_at,
-        access_token_saved=bool(user.google_access_token),
-        refresh_token_saved=bool(user.google_refresh_token),
+        access_token_saved=bool(user.access_token),
+        refresh_token_saved=bool(user.refresh_token),
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
         access_token_expires_at_app=tokens["access_expires_at"],

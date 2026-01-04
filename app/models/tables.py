@@ -70,8 +70,8 @@ class User(Base):
     google_access_token_expires_at: Mapped[Optional[sa.DateTime]] = mapped_column(
         sa.TIMESTAMP(timezone=True)
     )
-    google_refresh_token: Mapped[Optional[str]] = mapped_column(sa.Text)
-    google_token_scope: Mapped[Optional[str]] = mapped_column(sa.Text)
+    access_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    refresh_token: Mapped[Optional[str]] = mapped_column(sa.Text)
     created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )

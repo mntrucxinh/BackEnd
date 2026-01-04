@@ -245,8 +245,6 @@ def login_with_google(
     if id_token:
         user.google_id_token = id_token
     user.google_id_token_expires_at = exp_dt
-    if scope:
-        user.google_token_scope = scope
 
     # Access token (optional)
     if access_token:
@@ -260,9 +258,6 @@ def login_with_google(
         elif user.google_access_token_expires_at is None:
             user.google_access_token_expires_at = None
 
-    # Refresh token (optional)
-    if refresh_token:
-        user.google_refresh_token = refresh_token
     user.updated_at = now
 
     db.add(user)
@@ -298,97 +293,17 @@ def is_allowed_google_account(email: str) -> bool:
     return email.lower() in allowed
 
 
-def _ensure_client_secret():
-    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "code": "google_oauth_config_missing",
-                "message": "Thiếu GOOGLE_CLIENT_ID hoặc GOOGLE_CLIENT_SECRET để refresh token.",
-            },
-        )
-
-
-def refresh_google_access_token(db: Session, user: User) -> str:
-    if not user.google_refresh_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": "missing_refresh_token",
-                "message": "Chưa lưu refresh token; cần đăng nhập lại Google với quyền offline.",
-            },
-        )
-
-    _ensure_client_secret()
-
-    data = {
-        "grant_type": "refresh_token",
-        "refresh_token": user.google_refresh_token,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-    }
-    try:
-        resp = requests.post(GOOGLE_TOKEN_URL, data=data, timeout=5)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "code": "google_refresh_failed",
-                "message": f"Không gọi được Google để refresh: {e}",
-            },
-        )
-
-    if resp.status_code != 200:
-        detail = resp.text
-        try:
-            detail = resp.json()
-        except Exception:
-            pass
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": "google_refresh_invalid",
-                "message": "Refresh token không hợp lệ hoặc đã thu hồi; đăng nhập lại Google.",
-                "detail": detail,
-            },
-        )
-
-    data = resp.json()
-    access_token = data.get("access_token")
-    expires_in = data.get("expires_in")
-    if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "code": "google_refresh_missing_token",
-                "message": "Google không trả access_token khi refresh.",
-            },
-        )
-
-    now = _now()
-    user.google_access_token = access_token
-    if expires_in:
-        user.google_access_token_expires_at = now + timedelta(seconds=int(expires_in))
-    else:
-        user.google_access_token_expires_at = None
-    user.updated_at = now
+def store_app_tokens(db: Session, user: User, tokens: Dict[str, object]) -> User:
+    """
+    Persist latest app access/refresh tokens for auditing/visibility.
+    """
+    user.access_token = tokens["access_token"]
+    user.refresh_token = tokens["refresh_token"]
+    user.updated_at = _now()
     db.add(user)
     db.commit()
     db.refresh(user)
-    return access_token
-
-
-def get_valid_access_token(db: Session, user: User) -> str:
-    now = _now()
-    if user.google_access_token and user.google_access_token_expires_at:
-        if user.google_access_token_expires_at > now:
-            return user.google_access_token
-    elif user.google_access_token:
-        # No expiry stored → assume valid until proven otherwise
-        return user.google_access_token
-
-    # Need refresh
-    return refresh_google_access_token(db, user)
+    return user
 
 
 def get_user_for_google(db: Session, email: Optional[str] = None) -> User:
@@ -447,6 +362,7 @@ def refresh_app_tokens(db: Session, refresh_token: str) -> Tuple[User, Dict[str,
             detail={"code": "user_not_found", "message": "User không tồn tại."},
         )
     tokens = issue_app_tokens(user)
+    user = store_app_tokens(db, user, tokens)
     return user, tokens
 
 
