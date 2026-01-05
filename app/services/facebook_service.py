@@ -13,6 +13,7 @@ import logging
 import os
 import json
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import requests
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 # Facebook API configuration
 FB_PAGE_ID = os.getenv("FB_PAGE_ID")
 FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")
+FB_APP_ID = os.getenv("FB_APP_ID")
+FB_APP_SECRET = os.getenv("FB_APP_SECRET")
 FB_API_VERSION = os.getenv("FB_API_VERSION", "v19.0")
 APP_BASE_URL = os.getenv("APP_BASE_URL", "https://your-site.com")
 
@@ -194,6 +197,8 @@ def upload_video_to_facebook(
     post: Post,
     video_asset: Asset,
     post_url: str,
+    page_id: Optional[str] = None,
+    access_token: Optional[str] = None,
 ) -> str:
     """
     Upload video file to Facebook Page.
@@ -205,6 +210,8 @@ def upload_video_to_facebook(
         post: Post object containing article metadata
         video_asset: Asset object containing video file information
         post_url: Full URL to the article on website
+        page_id: Facebook Page ID (nếu None → dùng từ env)
+        access_token: Facebook Access Token (nếu None → dùng từ env)
         
     Returns:
         Facebook video/post ID
@@ -213,11 +220,15 @@ def upload_video_to_facebook(
         ValueError: If validation fails or Facebook API returns error
         FileNotFoundError: If video file does not exist on server
     """
-    if not FB_PAGE_ID or not FB_ACCESS_TOKEN:
-        raise ValueError("FB_PAGE_ID and FB_ACCESS_TOKEN must be set in environment")
+    # Ưu tiên dùng token từ User, fallback về env
+    fb_page_id = page_id or FB_PAGE_ID
+    fb_token = access_token or FB_ACCESS_TOKEN
+    
+    if not fb_page_id or not fb_token:
+        raise ValueError("FB_PAGE_ID and FB_ACCESS_TOKEN must be set (from user or environment)")
     
     # Kiểm tra permissions trước khi upload
-    perm_check = check_facebook_permissions()
+    perm_check = check_facebook_permissions(fb_token)
     if not perm_check["valid"]:
         missing = ", ".join(perm_check["missing_permissions"])
         raise ValueError(
@@ -285,7 +296,7 @@ def upload_video_to_facebook(
         "action": "upload_video",
         "post_id": post.id,
         "post_slug": post.slug,
-        "page_id": FB_PAGE_ID,
+        "page_id": fb_page_id,
         "video_file": video_path.name,
         "video_size_mb": round(file_size / (1024*1024), 2),
         "video_format": video_ext,
@@ -299,13 +310,13 @@ def upload_video_to_facebook(
         with open(video_path, 'rb') as video_file:
             files = {'file': video_file}
             data = {
-                'access_token': FB_ACCESS_TOKEN,
+                'access_token': fb_token,
                 'description': description,
                 'title': title,
             }
             
             response = requests.post(
-                f"https://graph-video.facebook.com/{FB_API_VERSION}/{FB_PAGE_ID}/videos",
+                f"https://graph-video.facebook.com/{FB_API_VERSION}/{fb_page_id}/videos",
                 files=files,
                 data=data,
                 timeout=600,  # 10 phút cho video lớn
@@ -428,6 +439,8 @@ def upload_images_to_facebook(
     post: Post,
     post_url: str,
     content_assets: Optional[list[Asset]] = None,
+    page_id: Optional[str] = None,
+    access_token: Optional[str] = None,
 ) -> str:
     """
     Upload images and publish post to Facebook Page.
@@ -439,6 +452,8 @@ def upload_images_to_facebook(
         post: Post object containing article metadata
         post_url: Full URL to the article on website
         content_assets: List of image assets to upload (max 10)
+        page_id: Facebook Page ID (nếu None → dùng từ env)
+        access_token: Facebook Access Token (nếu None → dùng từ env)
         
     Returns:
         Facebook post ID
@@ -446,8 +461,12 @@ def upload_images_to_facebook(
     Raises:
         requests.exceptions.HTTPError: If Facebook API returns error
     """
-    if not FB_PAGE_ID or not FB_ACCESS_TOKEN:
-        raise ValueError("FB_PAGE_ID and FB_ACCESS_TOKEN must be set in environment")
+    # Ưu tiên dùng token từ User, fallback về env
+    fb_page_id = page_id or FB_PAGE_ID
+    fb_token = access_token or FB_ACCESS_TOKEN
+    
+    if not fb_page_id or not fb_token:
+        raise ValueError("FB_PAGE_ID and FB_ACCESS_TOKEN must be set (from user or environment)")
     
     # Thu thập tất cả ảnh
     all_images = content_assets or []
@@ -488,11 +507,11 @@ def upload_images_to_facebook(
                 with open(image_path, 'rb') as image_file:
                     files = {'file': image_file}
                     data = {
-                        "access_token": FB_ACCESS_TOKEN,
+                        "access_token": fb_token,
                         "published": False,
                     }
                     photo_response = requests.post(
-                        f"https://graph.facebook.com/{FB_API_VERSION}/{FB_PAGE_ID}/photos",
+                        f"https://graph.facebook.com/{FB_API_VERSION}/{fb_page_id}/photos",
                         files=files,
                         data=data,
                         timeout=30,
@@ -520,9 +539,9 @@ def upload_images_to_facebook(
                     continue
                 
                 photo_response = requests.post(
-                    f"https://graph.facebook.com/{FB_API_VERSION}/{FB_PAGE_ID}/photos",
+                    f"https://graph.facebook.com/{FB_API_VERSION}/{fb_page_id}/photos",
                     params={
-                        "access_token": FB_ACCESS_TOKEN,
+                        "access_token": fb_token,
                         "url": image_url,
                         "published": False,
                     },
@@ -575,7 +594,7 @@ def upload_images_to_facebook(
     
     # Đăng bài với ảnh
     params = {
-        "access_token": FB_ACCESS_TOKEN,
+        "access_token": fb_token,
     }
     
     # Chỉ thêm message nếu có nội dung
@@ -606,7 +625,7 @@ def upload_images_to_facebook(
         "action": "upload_images",
         "post_id": post.id,
         "post_slug": post.slug,
-        "page_id": FB_PAGE_ID,
+        "page_id": fb_page_id,
         "image_count": len(photo_ids),
         "has_message": bool(message.strip()),
     }
@@ -614,7 +633,7 @@ def upload_images_to_facebook(
     logger.info("Publishing post to Facebook", extra=log_context)
     
     response = requests.post(
-        f"https://graph.facebook.com/{FB_API_VERSION}/{FB_PAGE_ID}/feed",
+        f"https://graph.facebook.com/{FB_API_VERSION}/{fb_page_id}/feed",
         params=params,
         timeout=30,
     )
@@ -660,4 +679,204 @@ def upload_images_to_facebook(
     )
     
     return fb_post_id
+
+
+# ============================================================================
+# Facebook Token Management Functions
+# ============================================================================
+
+def exchange_long_lived_token(short_lived_token: str) -> dict:
+    """
+    Exchange Short-lived User Token → Long-lived User Token (60 days).
+    
+    Args:
+        short_lived_token: Short-lived token từ Facebook OAuth
+        
+    Returns:
+        Dict: { access_token, expires_in (seconds) }
+        
+    Raises:
+        ValueError: Nếu không exchange được token
+    """
+    if not FB_APP_ID or not FB_APP_SECRET:
+        raise ValueError("FB_APP_ID and FB_APP_SECRET must be set in environment")
+    
+    url = f"https://graph.facebook.com/{FB_API_VERSION}/oauth/access_token"
+    params = {
+        "grant_type": "fb_exchange_token",
+        "client_id": FB_APP_ID,
+        "client_secret": FB_APP_SECRET,
+        "fb_exchange_token": short_lived_token,
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            error_data = response.json().get("error", {})
+            raise ValueError(
+                f"Không exchange được token: {error_data.get('message', 'Unknown error')}"
+            )
+        
+        data = response.json()
+        return {
+            "access_token": data["access_token"],
+            "expires_in": data.get("expires_in", 5184000),  # 60 days default
+        }
+    except requests.RequestException as e:
+        raise ValueError(f"Lỗi khi gọi Facebook API: {e}")
+
+
+def get_page_token_from_user_token(user_access_token: str) -> dict:
+    """
+    Lấy Page Access Token từ Long-lived User Token.
+    
+    Args:
+        user_access_token: Long-lived User Access Token
+        
+    Returns:
+        Dict: { page_id, access_token, name, expires_at }
+        
+    Raises:
+        ValueError: Nếu không lấy được Pages hoặc thiếu quyền
+    """
+    url = f"https://graph.facebook.com/{FB_API_VERSION}/me/accounts"
+    params = {
+        "access_token": user_access_token,
+        "fields": "id,name,access_token,tasks"
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            error_data = response.json().get("error", {})
+            raise ValueError(
+                f"Không lấy được Pages: {error_data.get('message', 'Unknown error')}"
+            )
+        
+        pages = response.json().get("data", [])
+        if not pages:
+            raise ValueError("User không quản lý Page nào")
+        
+        # Lấy Page đầu tiên
+        page = pages[0]
+        
+        # Check permissions
+        required_tasks = ["MANAGE", "CREATE_CONTENT"]
+        page_tasks = page.get("tasks", [])
+        if not all(task in page_tasks for task in required_tasks):
+            raise ValueError(
+                f"Page không có đủ quyền. Cần: {required_tasks}, có: {page_tasks}"
+            )
+        
+        page_token = page.get("access_token")
+        if not page_token:
+            raise ValueError("Page không có access_token")
+        
+        return {
+            "page_id": page["id"],
+            "access_token": page_token,
+            "name": page.get("name"),
+            "expires_at": None,  # Page token thường không hết hạn nếu từ long-lived user token
+        }
+    except requests.RequestException as e:
+        raise ValueError(f"Lỗi khi gọi Facebook API: {e}")
+
+
+def refresh_facebook_page_token(db, user) -> tuple[str, str]:
+    """
+    Tự động refresh Facebook Page Token.
+    
+    Flow:
+    1. Check Page Token còn hạn không?
+    2. Nếu hết hạn → Dùng Long-lived User Token để lấy Page Token mới
+    3. Update vào DB
+    
+    Args:
+        db: Database session
+        user: User object
+        
+    Returns:
+        Tuple (page_id, access_token)
+        
+    Raises:
+        ValueError: Nếu không thể refresh
+    """
+    from sqlalchemy.orm import Session
+    
+    now = datetime.now(timezone.utc)
+    
+    # Check Page Token còn hạn không?
+    if user.facebook_access_token:
+        if user.facebook_token_expires_at is None:
+            # Long-lived Page Token (không hết hạn)
+            return user.facebook_page_id, user.facebook_access_token
+        elif user.facebook_token_expires_at > now:
+            # Page Token còn hạn
+            return user.facebook_page_id, user.facebook_access_token
+    
+    # Page Token hết hạn → Cần refresh
+    
+    # Check Long-lived User Token còn hạn không?
+    if not user.facebook_user_access_token:
+        raise ValueError(
+            "Chưa có Long-lived User Token. "
+            "Vui lòng đăng nhập lại Facebook để liên kết."
+        )
+    
+    # Check User Token còn hạn không?
+    if user.facebook_user_token_expires_at:
+        if user.facebook_user_token_expires_at <= now:
+            raise ValueError(
+                "Long-lived User Token đã hết hạn (60 ngày). "
+                "Vui lòng đăng nhập lại Facebook để liên kết lại."
+            )
+    
+    # Dùng Long-lived User Token để lấy Page Token mới
+    logger.info(
+        "Refreshing Facebook Page token",
+        extra={"user_id": user.id, "action": "refresh_page_token"}
+    )
+    
+    page_info = get_page_token_from_user_token(user.facebook_user_access_token)
+    
+    # Update vào DB
+    user.facebook_page_id = page_info["page_id"]
+    user.facebook_access_token = page_info["access_token"]
+    user.facebook_token_expires_at = page_info.get("expires_at")
+    user.facebook_page_name = page_info.get("name")
+    user.updated_at = now
+    
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    logger.info(
+        "Facebook Page token refreshed successfully",
+        extra={"user_id": user.id, "page_id": page_info["page_id"]}
+    )
+    
+    return page_info["page_id"], page_info["access_token"]
+
+
+def get_valid_facebook_token(db, user) -> tuple[str, str]:
+    """
+    Lấy valid Facebook Page Token (tự động refresh nếu cần).
+    
+    Args:
+        db: Database session
+        user: User object
+        
+    Returns:
+        Tuple (page_id, access_token)
+        
+    Raises:
+        ValueError: Nếu không có token hoặc không thể refresh
+    """
+    if not user.facebook_page_id or not user.facebook_access_token:
+        raise ValueError("Chưa liên kết Facebook Page")
+    
+    # Tự động refresh nếu cần
+    return refresh_facebook_page_token(db, user)
 
