@@ -72,6 +72,19 @@ class User(Base):
     )
     access_token: Mapped[Optional[str]] = mapped_column(sa.Text)
     refresh_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    
+    # Facebook integration
+    facebook_user_access_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    facebook_user_token_expires_at: Mapped[Optional[sa.DateTime]] = mapped_column(
+        sa.TIMESTAMP(timezone=True)
+    )
+    facebook_page_id: Mapped[Optional[str]] = mapped_column(sa.Text)
+    facebook_access_token: Mapped[Optional[str]] = mapped_column(sa.Text)
+    facebook_token_expires_at: Mapped[Optional[sa.DateTime]] = mapped_column(
+        sa.TIMESTAMP(timezone=True)
+    )
+    facebook_page_name: Mapped[Optional[str]] = mapped_column(sa.Text)
+    
     created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )

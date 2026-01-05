@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile,
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.models.enums import ContentStatus
+from app.models.tables import User
 from app.schemas.news import (
     NewsCreate,
     NewsListOut,
@@ -73,7 +75,7 @@ async def create_news(
     meta_description: Optional[str] = Form(None, description="SEO description"),
     
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_current_user),  # Uncomment khi có auth
+    current_user: User = Depends(get_current_user),
 ) -> NewsOut:
     """
     Tạo bài viết - upload files trực tiếp, hiển thị theo thứ tự.
@@ -94,9 +96,7 @@ async def create_news(
     - Ảnh lưu vào /uploads/images/YYYY/MM/
     - Video lưu vào /uploads/videos/YYYY/MM/
     """
-    # TODO: Uncomment khi có auth
-    # user_id = current_user.id
-    user_id = None  # Tạm thời
+    user_id = current_user.id
     
     # Upload tất cả files theo thứ tự
     content_asset_ids = []
@@ -119,7 +119,7 @@ async def create_news(
     )
     
     # Tạo bài viết
-    return news_service.create_news(db, payload)
+    return news_service.create_news(db, payload, user=current_user)
 
 
 @router.put("/{news_id}", response_model=NewsOut)

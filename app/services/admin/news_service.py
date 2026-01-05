@@ -11,7 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.enums import ContentStatus, PostType
-from app.models.tables import Asset, Post, PostAsset, PostRevision
+from app.models.tables import Asset, Post, PostAsset, PostRevision, User
 from app.schemas.asset import AssetOut, PostAssetOut
 from app.schemas.news import (
     NewsCreate,
@@ -21,6 +21,7 @@ from app.schemas.news import (
     NewsUpdate,
     SlugCheckOut,
 )
+from app.services import facebook_service
 from app.services.facebook_service import (
     upload_images_to_facebook,
     upload_video_to_facebook,
@@ -164,9 +165,10 @@ def _publish_to_facebook(
     db: Session,
     post: Post,
     content_asset_public_ids: Optional[list[UUID]],
+    user: Optional[User] = None,
 ) -> None:
     """
-    Đăng bài viết lên Facebook khi publish.
+    Đăng bài viết lên Facebook khi publish (tự động refresh token nếu cần).
     
     Logic:
     - Có video → chỉ đăng video (bỏ qua ảnh)
@@ -177,6 +179,7 @@ def _publish_to_facebook(
         db: Database session
         post: Post object đã được tạo/cập nhật
         content_asset_public_ids: Danh sách public_id của content assets
+        user: User object (nếu None → không đăng Facebook)
     """
     post_url = f"{os.getenv('APP_BASE_URL', 'https://your-site.com')}/news/{post.slug}"
     
@@ -187,6 +190,39 @@ def _publish_to_facebook(
     }
     
     try:
+        # Lấy token từ User (tự động refresh nếu cần)
+        page_id = None
+        access_token = None
+        
+        if user:
+            try:
+                page_id, access_token = facebook_service.get_valid_facebook_token(db, user)
+                logger.info(
+                    "Using user Facebook token",
+                    extra={**log_context, "user_id": user.id, "page_id": page_id, "action": "facebook_publish_start"}
+                )
+            except ValueError as e:
+                # Token hết hạn và không thể refresh
+                logger.error(
+                    "Cannot refresh Facebook token",
+                    extra={**log_context, "user_id": user.id, "error": str(e)},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": "facebook_token_expired",
+                        "message": str(e),
+                        "action": "link_facebook",  # Frontend biết cần link lại
+                    },
+                )
+        else:
+            # Không có user → không đăng Facebook
+            logger.warning(
+                "No user provided, skipping Facebook publish",
+                extra={**log_context, "action": "facebook_publish_skipped"}
+            )
+            return
+        
         logger.info(
             "Starting Facebook publish",
             extra={**log_context, "action": "facebook_publish_start"}
@@ -225,7 +261,11 @@ def _publish_to_facebook(
                 "Publishing video to Facebook",
                 extra={**log_context, "video_asset_id": fb_video.id, "media_type": "video"}
             )
-            fb_post_id = upload_video_to_facebook(post, fb_video, post_url)
+            fb_post_id = upload_video_to_facebook(
+                post, fb_video, post_url,
+                page_id=page_id,
+                access_token=access_token,
+            )
             logger.info(
                 "Video published to Facebook successfully",
                 extra={**log_context, "facebook_post_id": fb_post_id, "media_type": "video"}
@@ -240,6 +280,8 @@ def _publish_to_facebook(
                 post=post,
                 post_url=post_url,
                 content_assets=fb_images,
+                page_id=page_id,
+                access_token=access_token,
             )
             logger.info(
                 "Images published to Facebook successfully",
@@ -255,6 +297,8 @@ def _publish_to_facebook(
                 post=post,
                 post_url=post_url,
                 content_assets=[],
+                page_id=page_id,
+                access_token=access_token,
             )
             logger.info(
                 "Text post published to Facebook successfully",
@@ -338,7 +382,7 @@ def get_news_detail(db: Session, news_id: int) -> NewsOut:
     return _to_news_out(db, post)
 
 
-def create_news(db: Session, payload: NewsCreate) -> NewsOut:
+def create_news(db: Session, payload: NewsCreate, user: Optional[User] = None) -> NewsOut:
     """Tạo bài viết mới."""
     logger.info(
         "Creating new news post",
@@ -402,7 +446,7 @@ def create_news(db: Session, payload: NewsCreate) -> NewsOut:
 
     # Tự động đăng Facebook khi publish
     if payload.status == ContentStatus.PUBLISHED:
-        _publish_to_facebook(db, post, payload.content_asset_public_ids)
+        _publish_to_facebook(db, post, payload.content_asset_public_ids, user=user)
 
     db.commit()
     db.refresh(post)
@@ -415,7 +459,7 @@ def create_news(db: Session, payload: NewsCreate) -> NewsOut:
     return _to_news_out(db, post)
 
 
-def update_news(db: Session, news_id: int, payload: NewsUpdate) -> NewsOut:
+def update_news(db: Session, news_id: int, payload: NewsUpdate, user: Optional[User] = None) -> NewsOut:
     """Cập nhật bài viết."""
     logger.info("Updating news post", extra={"action": "update_news", "news_id": news_id})
     
@@ -493,7 +537,7 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate) -> NewsOut:
             else:
                 content_asset_public_ids = None
             
-            _publish_to_facebook(db, post, content_asset_public_ids)
+            _publish_to_facebook(db, post, content_asset_public_ids, user=user)
         elif (
             previous_status == ContentStatus.PUBLISHED
             and payload.status != ContentStatus.PUBLISHED

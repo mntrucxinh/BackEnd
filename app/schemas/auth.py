@@ -100,3 +100,26 @@ class GoogleRefreshResponse(BaseModel):
         ..., description="Hết hạn refresh token", serialization_alias="refreshTokenExpiresAt"
     )
     user: GoogleUserOut
+
+
+class FacebookLinkRequest(BaseModel):
+    user_access_token: str = Field(
+        ..., description="Short-lived User Access Token từ Facebook OAuth"
+    )
+
+
+class FacebookLinkResponse(BaseModel):
+    linked: bool
+    page_id: str
+    page_name: Optional[str] = None
+    user_token_expires_at: Optional[datetime] = None
+    message: Optional[str] = None
+
+
+class FacebookStatusResponse(BaseModel):
+    linked: bool
+    valid: bool
+    page_id: Optional[str] = None
+    page_name: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    message: Optional[str] = None
