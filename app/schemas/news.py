@@ -24,6 +24,10 @@ class NewsBase(BaseModel):
         default=ContentStatus.DRAFT,
         description="Workflow nội dung: draft / published / archived.",
     )
+    publish_to_facebook: bool = Field(
+        default=True,
+        description="Có đăng lên Facebook hay không. Chỉ áp dụng khi status = PUBLISHED.",
+    )
     meta_title: Optional[str] = Field(default=None, max_length=255)
     meta_description: Optional[str] = Field(default=None, max_length=500)
     content_asset_public_ids: Optional[list[UUID]] = Field(
@@ -47,6 +51,10 @@ class NewsUpdate(BaseModel):
     excerpt: Optional[str] = Field(default=None, max_length=500)
     content_html: Optional[str] = Field(default=None, min_length=1)
     status: Optional[ContentStatus] = None
+    publish_to_facebook: Optional[bool] = Field(
+        default=None,
+        description="Có đăng lên Facebook hay không. Chỉ áp dụng khi status = PUBLISHED. Set null để giữ nguyên.",
+    )
     meta_title: Optional[str] = Field(default=None, max_length=255)
     meta_description: Optional[str] = Field(default=None, max_length=500)
     content_asset_public_ids: Optional[list[UUID]] = Field(
