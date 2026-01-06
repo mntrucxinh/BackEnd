@@ -10,8 +10,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.models.enums import ContentStatus, PostType
-from app.models.tables import Asset, Post, PostAsset, PostRevision, User
+from app.models.enums import ContentStatus, JobStatus, PostType
+from app.models.tables import Asset, FacebookPostLog, Post, PostAsset, PostRevision, User
 from app.schemas.asset import AssetOut, PostAssetOut
 from app.schemas.news import (
     NewsCreate,
@@ -23,6 +23,8 @@ from app.schemas.news import (
 )
 from app.services import facebook_service
 from app.services.facebook_service import (
+    delete_facebook_post,
+    get_valid_facebook_token,
     upload_images_to_facebook,
     upload_video_to_facebook,
 )
@@ -304,6 +306,10 @@ def _publish_to_facebook(
                 "Text post published to Facebook successfully",
                 extra={**log_context, "facebook_post_id": fb_post_id, "media_type": "text"}
             )
+        
+        # Lưu fb_post_id vào FacebookPostLog
+        if fb_post_id:
+            _save_facebook_post_log(db, post.id, fb_post_id, JobStatus.SUCCEEDED)
             
     except Exception as e:
         # Rollback transaction nếu Facebook fail
@@ -320,6 +326,154 @@ def _publish_to_facebook(
                 "message": f"Đăng bài lên Facebook thất bại: {str(e)}",
             },
         )
+
+
+def _get_post_content_asset_public_ids(
+    db: Session, post_id: int
+) -> Optional[list[UUID]]:
+    """
+    Lấy danh sách content_asset_public_ids từ PostAsset của một post.
+    
+    Returns:
+        List[UUID] nếu có assets, None nếu không có assets.
+    """
+    post_assets = db.scalars(
+        select(PostAsset)
+        .where(PostAsset.post_id == post_id)
+        .order_by(PostAsset.position)
+    ).all()
+    
+    if not post_assets:
+        return None
+    
+    asset_ids = [pa.asset_id for pa in post_assets]
+    assets = db.scalars(
+        select(Asset).where(
+            Asset.id.in_(asset_ids),
+            Asset.deleted_at.is_(None),
+        )
+    ).all()
+    
+    return [asset.public_id for asset in assets]
+
+
+def _get_facebook_post_id(db: Session, post_id: int) -> Optional[str]:
+    """Lấy fb_post_id từ FacebookPostLog."""
+    log_entry = db.scalar(
+        select(FacebookPostLog)
+        .where(
+            FacebookPostLog.post_id == post_id,
+            FacebookPostLog.fb_post_id.isnot(None),
+        )
+        .order_by(FacebookPostLog.created_at.desc())
+    )
+    return log_entry.fb_post_id if log_entry else None
+
+
+def _save_facebook_post_log(
+    db: Session,
+    post_id: int,
+    fb_post_id: str,
+    status: JobStatus,
+) -> FacebookPostLog:
+    """Lưu hoặc cập nhật FacebookPostLog."""
+    log_entry = db.scalar(
+        select(FacebookPostLog).where(FacebookPostLog.post_id == post_id)
+    )
+    
+    if log_entry:
+        log_entry.fb_post_id = fb_post_id
+        log_entry.status = status
+        log_entry.updated_at = datetime.now(timezone.utc)
+    else:
+        log_entry = FacebookPostLog(
+            post_id=post_id,
+            fb_post_id=fb_post_id,
+            status=status,
+        )
+        db.add(log_entry)
+    
+    db.flush()
+    return log_entry
+
+
+def _delete_from_facebook(
+    db: Session,
+    post_id: int,
+    user: Optional[User] = None,
+) -> bool:
+    """
+    Xóa post trên Facebook nếu có.
+    
+    Returns:
+        True nếu xóa thành công hoặc không có post trên Facebook
+        False nếu lỗi khi xóa
+    """
+    fb_post_id = _get_facebook_post_id(db, post_id)
+    if not fb_post_id:
+        logger.debug(
+            "No Facebook post to delete",
+            extra={"post_id": post_id, "action": "delete_facebook"}
+        )
+        return True
+    
+    log_context = {
+        "post_id": post_id,
+        "fb_post_id": fb_post_id,
+        "action": "delete_facebook",
+    }
+    
+    try:
+        # Lấy token từ User nếu có
+        page_id = None
+        access_token = None
+        
+        if user:
+            try:
+                page_id, access_token = get_valid_facebook_token(db, user)
+            except ValueError:
+                # Token hết hạn, thử dùng env token
+                logger.warning(
+                    "Cannot get user token, using env token",
+                    extra={**log_context, "user_id": user.id}
+                )
+        
+        # Xóa trên Facebook
+        success = delete_facebook_post(
+            fb_post_id=fb_post_id,
+            page_id=page_id,
+            access_token=access_token,
+        )
+        
+        if success:
+            # Cập nhật log
+            log_entry = db.scalar(
+                select(FacebookPostLog).where(FacebookPostLog.post_id == post_id)
+            )
+            if log_entry:
+                log_entry.status = JobStatus.SUCCEEDED
+                log_entry.updated_at = datetime.now(timezone.utc)
+            
+            logger.info(
+                "Facebook post deleted successfully",
+                extra={**log_context}
+            )
+        else:
+            logger.warning(
+                "Facebook post deletion failed or post not found",
+                extra={**log_context}
+            )
+        
+        return success
+        
+    except Exception as e:
+        logger.error(
+            "Failed to delete Facebook post",
+            extra={**log_context, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True
+        )
+        # Không fail toàn bộ nếu xóa Facebook lỗi
+        return False
 
 
 def list_news(
@@ -445,7 +599,11 @@ def create_news(db: Session, payload: NewsCreate, user: Optional[User] = None) -
     db.add(revision)
 
     # Tự động đăng Facebook khi publish
-    if payload.status == ContentStatus.PUBLISHED:
+    # LƯU Ý: 
+    # - Chỉ đăng khi status = PUBLISHED VÀ publish_to_facebook = True
+    # - DRAFT/ARCHIVED không đăng lên Facebook
+    # - PUBLISHED nhưng publish_to_facebook = False → chỉ hiện trên web, không đăng Facebook
+    if payload.status == ContentStatus.PUBLISHED and payload.publish_to_facebook:
         _publish_to_facebook(db, post, payload.content_asset_public_ids, user=user)
 
     db.commit()
@@ -464,12 +622,13 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate, user: Optional[U
     logger.info("Updating news post", extra={"action": "update_news", "news_id": news_id})
     
     post = _get_news_or_404(db, news_id)
+    previous_status = post.status  # Lưu status cũ để so sánh
 
+    # Tự động tạo slug từ title khi title thay đổi (giống create_news)
     if payload.title is not None:
         post.title = payload.title
-
-    if payload.slug is not None:
-        new_slug = payload.slug or slugify(post.title)
+        # Tự động tạo slug mới từ title
+        new_slug = slugify(post.title)
         if not new_slug:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -491,9 +650,11 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate, user: Optional[U
         post.meta_description = payload.meta_description
 
     # Xử lý content_assets: xóa cũ, thêm mới
+    content_assets_changed = False
     if payload.content_asset_public_ids is not None:
         # Xóa tất cả post_assets cũ
         db.execute(delete(PostAsset).where(PostAsset.post_id == post.id))
+        content_assets_changed = True
         
         # Thêm mới theo thứ tự
         if payload.content_asset_public_ids:
@@ -505,9 +666,16 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate, user: Optional[U
                     position=position,
                 )
                 db.add(post_asset)
+        
+        # Flush để đảm bảo PostAsset đã được cập nhật trước khi lấy lại
+        db.flush()
 
+    # Xác định publish_to_facebook
+    # Nếu không set trong payload (None) → giữ nguyên trạng thái hiện tại
+    # Nếu set → dùng giá trị đó
+    publish_to_facebook = payload.publish_to_facebook
+    
     if payload.status is not None:
-        previous_status = post.status
         post.status = payload.status
         now = datetime.now(timezone.utc)
         
@@ -518,31 +686,81 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate, user: Optional[U
             post.published_at = now
             
             # Tự động đăng Facebook khi publish
-            # Lấy content_asset_public_ids từ PostAsset
-            post_assets = db.scalars(
-                select(PostAsset)
-                .where(PostAsset.post_id == post.id)
-                .order_by(PostAsset.position)
-            ).all()
-            
-            if post_assets:
-                asset_ids = [pa.asset_id for pa in post_assets]
-                assets = db.scalars(
-                    select(Asset).where(
-                        Asset.id.in_(asset_ids),
-                        Asset.deleted_at.is_(None),
-                    )
-                ).all()
-                content_asset_public_ids = [asset.public_id for asset in assets]
-            else:
-                content_asset_public_ids = None
-            
-            _publish_to_facebook(db, post, content_asset_public_ids, user=user)
+            # LƯU Ý: 
+            # - Chỉ đăng khi publish_to_facebook = True (hoặc None - mặc định True)
+            # - Nếu publish_to_facebook = False → chỉ publish trên web, không đăng Facebook
+            if publish_to_facebook is None or publish_to_facebook:
+                content_asset_public_ids = _get_post_content_asset_public_ids(db, post.id)
+                _publish_to_facebook(db, post, content_asset_public_ids, user=user)
         elif (
             previous_status == ContentStatus.PUBLISHED
             and payload.status != ContentStatus.PUBLISHED
         ):
             post.published_at = None
+            # Xóa post trên Facebook khi unpublish
+            _delete_from_facebook(db, post.id, user=user)
+        elif (
+            previous_status == ContentStatus.PUBLISHED
+            and payload.status == ContentStatus.PUBLISHED
+            and publish_to_facebook is not None
+        ):
+            # Trường hợp: vẫn PUBLISHED nhưng thay đổi publish_to_facebook
+            if not publish_to_facebook:
+                # Tắt đăng Facebook → xóa post trên Facebook (nếu có)
+                _delete_from_facebook(db, post.id, user=user)
+            else:
+                # Bật đăng Facebook → đăng lại (nếu chưa có thì đăng mới)
+                # Kiểm tra xem đã có trên Facebook chưa
+                fb_post_id = _get_facebook_post_id(db, post.id)
+                if not fb_post_id:
+                    # Chưa có trên Facebook → đăng mới
+                    content_asset_public_ids = _get_post_content_asset_public_ids(db, post.id)
+                    _publish_to_facebook(db, post, content_asset_public_ids, user=user)
+    
+    # Nếu bài đã published và có thay đổi nội dung → xóa cũ và đăng lại
+    # LƯU Ý: 
+    # - Chỉ đăng Facebook khi status = PUBLISHED VÀ publish_to_facebook = True
+    # - DRAFT/ARCHIVED không đăng
+    # - PUBLISHED nhưng publish_to_facebook = False → chỉ hiện trên web, không đăng Facebook
+    # Kiểm tra tất cả các field có thể ảnh hưởng đến Facebook post
+    has_content_changes = (
+        payload.title is not None
+        or payload.content_html is not None
+        or payload.excerpt is not None
+        or payload.slug is not None  # Slug thay đổi → URL thay đổi
+        or payload.content_asset_public_ids is not None
+        or payload.meta_title is not None  # Meta có thể ảnh hưởng đến link preview
+        or payload.meta_description is not None
+    )
+    
+    # Chỉ cập nhật Facebook nếu bài vẫn ở trạng thái PUBLISHED
+    # Logic:
+    # - Nếu publish_to_facebook = False → xóa post trên Facebook (nếu có)
+    # - Nếu publish_to_facebook = True hoặc None (không set) → xóa cũ và đăng lại với nội dung mới
+    # LƯU Ý: Nếu publish_to_facebook = None (không set trong request) → mặc định là True (giữ nguyên behavior cũ)
+    if (
+        post.status == ContentStatus.PUBLISHED
+        and previous_status == ContentStatus.PUBLISHED
+        and has_content_changes
+    ):
+        # Nếu publish_to_facebook = False → xóa post trên Facebook (nếu có)
+        if publish_to_facebook is False:
+            _delete_from_facebook(db, post.id, user=user)
+        else:
+            # publish_to_facebook = True hoặc None → xóa cũ và đăng lại với nội dung mới
+            # Xóa post cũ trên Facebook
+            _delete_from_facebook(db, post.id, user=user)
+            
+            # Đăng lại với nội dung mới
+            # Nếu content_assets đã thay đổi, đảm bảo đã flush trước khi lấy lại
+            if content_assets_changed:
+                db.flush()
+            
+            # Chỉ đăng Facebook nếu publish_to_facebook = True hoặc None (mặc định True)
+            # Nếu publish_to_facebook = None → coi như True (giữ nguyên behavior)
+            if publish_to_facebook is not False:
+                content_asset_public_ids = _get_post_content_asset_public_ids(db, post.id)
+                _publish_to_facebook(db, post, content_asset_public_ids, user=user)
 
     post.updated_at = datetime.now(timezone.utc)
 
@@ -566,11 +784,16 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate, user: Optional[U
     return _to_news_out(db, post)
 
 
-def delete_news(db: Session, news_id: int) -> None:
-    """Xóa bài viết (soft delete)."""
+def delete_news(db: Session, news_id: int, user: Optional[User] = None) -> None:
+    """Xóa bài viết (soft delete) và xóa post trên Facebook nếu có."""
     logger.info("Deleting news post", extra={"action": "delete_news", "news_id": news_id})
     
     post = _get_news_or_404(db, news_id)
+    
+    # Xóa trên Facebook nếu đã đăng
+    if post.status == ContentStatus.PUBLISHED:
+        _delete_from_facebook(db, post.id, user=user)
+    
     post.deleted_at = datetime.now(timezone.utc)
     db.add(post)
     db.commit()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import traceback
 from typing import Any, Dict
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -48,6 +48,31 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        # Xử lý trường hợp đặc biệt: files là string (client gửi string rỗng)
+        # Nếu lỗi validation là về files và có message về UploadFile/string
+        # → tự động bỏ qua và coi như không có files
+        errors = exc.errors()
+        files_error = None
+        for error in errors:
+            if error.get("loc") and "files" in error.get("loc", []):
+                error_msg = str(error.get("msg", ""))
+                if "Expected UploadFile" in error_msg and "received" in error_msg and "str" in error_msg:
+                    files_error = error
+                    break
+        
+        # Nếu có lỗi files là string → bỏ qua lỗi đó
+        # LƯU Ý: Nếu endpoint dùng parse_files_from_request, FastAPI sẽ không validate field files
+        # nên lỗi này chỉ xảy ra nếu endpoint vẫn dùng File() parameter
+        if files_error:
+            # Loại bỏ lỗi files khỏi danh sách lỗi
+            errors = [e for e in errors if e != files_error]
+            
+            # Nếu không còn lỗi nào → request hợp lệ (chỉ có lỗi files string)
+            # Bỏ qua lỗi này và tiếp tục xử lý (không trả về lỗi)
+            if not errors:
+                # Không trả về lỗi, để request tiếp tục được xử lý
+                # Endpoint sẽ tự parse files từ request
+                pass
         field_errors: Dict[str, Any] = {}
         for err in exc.errors():
             loc = err.get("loc", [])

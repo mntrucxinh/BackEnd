@@ -681,6 +681,102 @@ def upload_images_to_facebook(
     return fb_post_id
 
 
+def delete_facebook_post(
+    fb_post_id: str,
+    page_id: Optional[str] = None,
+    access_token: Optional[str] = None,
+) -> bool:
+    """
+    Xóa post trên Facebook.
+    
+    Args:
+        fb_post_id: Facebook post ID cần xóa
+        page_id: Facebook Page ID (nếu None thì dùng FB_PAGE_ID từ env)
+        access_token: Facebook access token (nếu None thì dùng FB_ACCESS_TOKEN từ env)
+        
+    Returns:
+        True nếu xóa thành công, False nếu không tìm thấy hoặc đã bị xóa
+    """
+    fb_page_id = page_id or FB_PAGE_ID
+    fb_token = access_token or FB_ACCESS_TOKEN
+    
+    if not fb_page_id or not fb_token:
+        logger.warning(
+            "Cannot delete Facebook post: missing page_id or access_token",
+            extra={"fb_post_id": fb_post_id}
+        )
+        return False
+    
+    log_context = {
+        "action": "delete_facebook_post",
+        "fb_post_id": fb_post_id,
+        "page_id": fb_page_id,
+    }
+    
+    try:
+        # Facebook API: DELETE /{post-id}
+        response = requests.delete(
+            f"https://graph.facebook.com/{FB_API_VERSION}/{fb_post_id}",
+            params={
+                "access_token": fb_token,
+            },
+            timeout=30,
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            success = result.get("success", False)
+            if success:
+                logger.info(
+                    "Facebook post deleted successfully",
+                    extra={**log_context}
+                )
+                return True
+            else:
+                logger.warning(
+                    "Facebook API returned success=false",
+                    extra={**log_context, "response": result}
+                )
+                return False
+        elif response.status_code == 404:
+            # Post đã bị xóa hoặc không tồn tại
+            logger.info(
+                "Facebook post not found (already deleted?)",
+                extra={**log_context}
+            )
+            return False
+        else:
+            error_detail = response.text
+            try:
+                error_json = response.json()
+                fb_error = error_json.get("error", {})
+                error_detail = fb_error.get("message", error_detail)
+                error_code = fb_error.get("code", "")
+                logger.error(
+                    "Facebook API error when deleting post",
+                    extra={
+                        **log_context,
+                        "error_code": error_code,
+                        "error_message": error_detail,
+                        "http_status": response.status_code,
+                    }
+                )
+            except Exception:
+                logger.error(
+                    "Facebook API error (could not parse error details)",
+                    extra={**log_context, "http_status": response.status_code, "raw_error": error_detail}
+                )
+            return False
+            
+    except Exception as e:
+        logger.error(
+            "Failed to delete Facebook post",
+            extra={**log_context, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True
+        )
+        return False
+
+
 # ============================================================================
 # Facebook Token Management Functions
 # ============================================================================
