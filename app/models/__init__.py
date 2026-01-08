@@ -17,6 +17,7 @@ from .tables import (
     ContactMessage,
     FacebookPostLog,
     JobOutbox,
+    PushSubscription,
     Post,
     PostAsset,
     PostRevision,
@@ -44,6 +45,7 @@ __all__ = [
     "PostAsset",
     "PostRevision",
     "PostType",
+    "PushSubscription",
     "User",
     "VideoEmbed",
 ]

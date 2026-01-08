@@ -523,3 +523,25 @@ class AuditLog(Base):
     created_at: Mapped[sa.DateTime] = mapped_column(
         sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
+
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+    __table_args__ = (
+        sa.Index("push_subscriptions_created_at_idx", sa.text("created_at DESC")),
+    )
+
+    id: Mapped[int] = mapped_column(sa.BigInteger, primary_key=True)
+    endpoint: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    p256dh: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    auth: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    expiration_time: Mapped[Optional[int]] = mapped_column(sa.BigInteger)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[sa.DateTime] = mapped_column(
+        sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[sa.DateTime] = mapped_column(
+        sa.TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )

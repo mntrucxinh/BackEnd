@@ -130,6 +130,7 @@ def logout(
         try:
             user = auth_service.get_user_from_refresh(db, refresh_token)
             user_email = user.email
+            auth_service.clear_app_tokens(db, user)
         except HTTPException:
             # Ignore invalid token on logout
             pass
