@@ -306,6 +306,19 @@ def store_app_tokens(db: Session, user: User, tokens: Dict[str, object]) -> User
     return user
 
 
+def clear_app_tokens(db: Session, user: User) -> User:
+    """
+    Clear stored app access/refresh tokens for logout.
+    """
+    user.access_token = None
+    user.refresh_token = None
+    user.updated_at = _now()
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def get_user_for_google(db: Session, email: Optional[str] = None) -> User:
     user = None
     if email:
