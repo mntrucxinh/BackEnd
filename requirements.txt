@@ -8,3 +8,4 @@ python-multipart>=0.0.9
 Pillow>=10.0.0
 requests>=2.31.0
 python-jose>=3.3.0
+pywebpush>=1.15.0
