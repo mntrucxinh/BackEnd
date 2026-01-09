@@ -19,6 +19,7 @@ GOOGLE_TOKENINFO_ACCESS_URL = "https://www.googleapis.com/oauth2/v1/tokeninfo"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 ALLOWED_GOOGLE_ACCOUNT = os.getenv("GOOGLE_ACCOUNT")
+ACCESS_COOKIE_NAME = "accessToken"
 REFRESH_COOKIE_NAME = "refreshToken"
 
 
@@ -349,6 +350,21 @@ def set_refresh_cookie(response: Response, refresh_token: str, expires_at: Optio
     response.set_cookie(
         REFRESH_COOKIE_NAME,
         refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        path="/",
+        max_age=max_age,
+    )
+
+
+def set_access_cookie(response: Response, access_token: str, expires_at: Optional[datetime]) -> None:
+    max_age = None
+    if expires_at:
+        max_age = int((expires_at - _now()).total_seconds())
+    response.set_cookie(
+        ACCESS_COOKIE_NAME,
+        access_token,
         httponly=True,
         secure=False,
         samesite="lax",

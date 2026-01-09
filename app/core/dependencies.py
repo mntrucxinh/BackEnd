@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,11 +11,13 @@ from app.core.database import get_db
 from app.core.security import JWT_SECRET, JWT_ALGORITHM
 from app.models.tables import User
 from jose import JWTError, jwt
+from app.services import auth_service
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
@@ -32,7 +34,20 @@ def get_current_user(
     Raises:
         HTTPException: Nếu token không hợp lệ hoặc user không tồn tại
     """
-    token = credentials.credentials
+    token = None
+    if credentials and credentials.scheme.lower() == "bearer":
+        token = credentials.credentials
+    if not token:
+        token = request.cookies.get(auth_service.ACCESS_COOKIE_NAME)
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "missing_token",
+                "message": "Không tìm thấy access token.",
+            },
+        )
     
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])

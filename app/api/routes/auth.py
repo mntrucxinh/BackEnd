@@ -46,6 +46,9 @@ def google_login(
     auth_service.set_refresh_cookie(
         response, tokens["refresh_token"], tokens["refresh_expires_at"]
     )
+    auth_service.set_access_cookie(
+        response, tokens["access_token"], tokens["access_expires_at"]
+    )
 
     return GoogleLoginResponse(
         user=GoogleUserOut(
@@ -102,6 +105,9 @@ def refresh_tokens(
     auth_service.set_refresh_cookie(
         response, tokens["refresh_token"], tokens["refresh_expires_at"]
     )
+    auth_service.set_access_cookie(
+        response, tokens["access_token"], tokens["access_expires_at"]
+    )
 
     return GoogleRefreshResponse(
         access_token=tokens["access_token"],
@@ -136,6 +142,7 @@ def logout(
             pass
 
     response.delete_cookie(auth_service.REFRESH_COOKIE_NAME, path="/")
+    response.delete_cookie(auth_service.ACCESS_COOKIE_NAME, path="/")
     return {"message": "Logged out", "email": user_email}
 
 
