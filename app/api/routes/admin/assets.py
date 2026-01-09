@@ -8,21 +8,54 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, File, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.asset import AssetOut
+from app.core.dependencies import get_current_user
+from app.models.tables import User
+from app.schemas.asset import AssetListOut, AssetOut
 from app.services import asset_service
 
 router = APIRouter(prefix="/admin/assets", tags=["Admin - Assets"])
+
+
+@router.get("", response_model=AssetListOut)
+def list_assets(
+    *,
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1, description="Số trang"),
+    page_size: int = Query(20, ge=1, le=100, description="Số items mỗi trang"),
+    mime_type: Optional[str] = Query(
+        None,
+        description="Lọc theo mime_type (ví dụ: 'image/' hoặc 'video/'). Bỏ trống để lấy tất cả.",
+    ),
+    q: Optional[str] = Query(
+        None,
+        description="Từ khoá tìm kiếm (search trong url và object_key).",
+    ),
+    current_user: User = Depends(get_current_user),
+) -> AssetListOut:
+    """
+    Lấy danh sách assets trong thư viện.
+    
+    Dùng để hiển thị thư viện assets cho admin chọn khi tạo album hoặc bài viết.
+    Hỗ trợ filter theo mime_type (ảnh/video) và search.
+    """
+    return asset_service.list_assets(
+        db,
+        page=page,
+        page_size=page_size,
+        mime_type_filter=mime_type,
+        q=q,
+    )
 
 
 @router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
 async def upload_asset(
     file: UploadFile = File(..., description="File ảnh hoặc video để upload"),
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_current_user),  # Uncomment khi có auth
+    current_user: User = Depends(get_current_user),
 ) -> AssetOut:
     """
     Upload asset (ảnh hoặc video).
@@ -31,11 +64,9 @@ async def upload_asset(
     - Video: lưu vào /uploads/videos/YYYY/MM/
     
     Returns:
-        AssetOut với public_id để dùng khi tạo post
+        AssetOut với public_id để dùng khi tạo post hoặc album
     """
-    # TODO: Uncomment khi có auth
-    # user_id = current_user.id
-    user_id = None  # Tạm thời
+    user_id = current_user.id
     
     asset = await asset_service.upload_asset(db, file, user_id)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
+from enum import Enum
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from sqlalchemy.orm import Session
@@ -22,6 +23,22 @@ from app.services import asset_service
 from app.services.admin import news_service
 
 logger = logging.getLogger(__name__)
+
+
+class SortBy(str, Enum):
+    """Các field có thể sort."""
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    PUBLISHED_AT = "published_at"
+    TITLE = "title"
+    STATUS = "status"
+    CONTENT_HTML = "content_html"
+
+
+class SortOrder(str, Enum):
+    """Thứ tự sort."""
+    ASC = "asc"
+    DESC = "desc"
 
 
 router = APIRouter(prefix="/admin/news", tags=["Admin - News"])
@@ -99,6 +116,14 @@ def list_news(
         None,
         description="Từ khoá tìm kiếm theo tiêu đề/slug (ILIKE).",
     ),
+    sort_by: SortBy = Query(
+        SortBy.PUBLISHED_AT,
+        description="Field để sort: created_at, updated_at, published_at, title, status, content_html.",
+    ),
+    sort_order: SortOrder = Query(
+        SortOrder.DESC,
+        description="Thứ tự sort: asc (tăng dần) hoặc desc (giảm dần).",
+    ),
 ) -> NewsListOut:
     return news_service.list_news(
         db,
@@ -106,6 +131,8 @@ def list_news(
         page_size=page_size,
         status_filter=status_filter,
         q=q,
+        sort_by=sort_by.value,
+        sort_order=sort_order.value,
     )
 
 
