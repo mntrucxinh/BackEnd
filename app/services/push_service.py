@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Optional
 
@@ -56,6 +57,8 @@ def send_push_for_announcement(db: Session, *, slug: str) -> dict:
             "body": body,
             "url": target_url,
             "tag": f"announcement-{announcement.public_id}",
+            "icon": "/icon-192.png",
+            "badge": "/icon-192.png",
         }
         try:
             webpush(
@@ -63,7 +66,7 @@ def send_push_for_announcement(db: Session, *, slug: str) -> dict:
                     "endpoint": sub.endpoint,
                     "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
                 },
-                data=str(payload),
+                data=json.dumps(payload),
                 vapid_private_key=vapid_private,
                 vapid_public_key=vapid_public,
                 ttl=3600,
