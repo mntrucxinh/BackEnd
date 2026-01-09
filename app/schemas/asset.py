@@ -47,3 +47,19 @@ class PublicPostAssetOut(BaseModel):
     position: int = Field(..., description="Thứ tự ảnh trong bài viết.")
     caption: Optional[str] = Field(default=None, description="Chú thích ảnh.")
     asset: PublicAssetOut = Field(..., description="Thông tin asset.")
+
+
+# ============================================================================
+# Asset List schemas
+# ============================================================================
+
+class AssetListMeta(BaseModel):
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
+class AssetListOut(BaseModel):
+    items: list[AssetOut]
+    meta: AssetListMeta

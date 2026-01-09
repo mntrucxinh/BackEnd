@@ -12,10 +12,12 @@ from typing import Optional
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from PIL import Image
 
 from app.models.tables import Asset
+from app.schemas.asset import AssetListMeta, AssetListOut, AssetOut
 
 # Cấu hình thư mục lưu trữ
 # Nếu có UPLOAD_DIR env thì dùng, không thì dùng relative path (cho local dev)
@@ -127,4 +129,77 @@ async def upload_asset(
     db.refresh(asset)
     
     return asset
+
+
+def list_assets(
+    db: Session,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    mime_type_filter: Optional[str] = None,
+    q: Optional[str] = None,
+) -> AssetListOut:
+    """
+    Lấy danh sách assets với pagination và filter.
+    
+    Args:
+        db: Database session
+        page: Số trang
+        page_size: Số items mỗi trang
+        mime_type_filter: Filter theo mime_type (ví dụ: "image/" hoặc "video/")
+        q: Từ khoá tìm kiếm (search trong url và object_key)
+        
+    Returns:
+        AssetListOut với danh sách assets và pagination meta
+    """
+    # Base query
+    stmt = select(Asset).where(Asset.deleted_at.is_(None))
+    
+    # Filter by mime_type
+    if mime_type_filter:
+        stmt = stmt.where(Asset.mime_type.startswith(mime_type_filter))
+    
+    # Search (có thể search theo url hoặc object_key)
+    if q:
+        search_term = f"%{q}%"
+        stmt = stmt.where(
+            (Asset.url.ilike(search_term))
+            | (Asset.object_key.ilike(search_term))
+        )
+    
+    # Count total
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total_items = db.scalar(count_stmt)
+    
+    # Pagination
+    offset = (page - 1) * page_size
+    stmt = stmt.order_by(Asset.created_at.desc()).offset(offset).limit(page_size)
+    
+    assets = db.scalars(stmt).all()
+    
+    # Convert to output
+    items = [
+        AssetOut(
+            id=asset.id,
+            public_id=asset.public_id,
+            url=asset.url or "",
+            mime_type=asset.mime_type,
+            byte_size=asset.byte_size,
+            width=asset.width,
+            height=asset.height,
+        )
+        for asset in assets
+    ]
+    
+    total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 0
+    
+    return AssetListOut(
+        items=items,
+        meta=AssetListMeta(
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        ),
+    )
 

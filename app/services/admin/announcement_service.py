@@ -447,6 +447,8 @@ def list_announcements(
     status_filter: Optional[ContentStatus] = None,
     grade: Optional[str] = None,
     q: Optional[str] = None,
+    sort_by: str = "published_at",
+    sort_order: str = "desc",
 ) -> AdminAnnouncementListOut:
     """List thông báo cho admin CMS (có thể lọc theo status, block, search)."""
     base_stmt = (
@@ -483,9 +485,31 @@ def list_announcements(
             (Post.title.ilike(ilike)) | (Post.slug.ilike(ilike))
         )
 
-    base_stmt = base_stmt.order_by(
-        Post.published_at.desc().nullslast(), Post.created_at.desc()
-    )
+    # Xử lý sort
+    valid_sort_fields = {
+        "created_at": Post.created_at,
+        "updated_at": Post.updated_at,
+        "published_at": Post.published_at,
+        "title": Post.title,
+        "status": Post.status,
+        "content_html": Post.content_html,
+    }
+    
+    sort_field = valid_sort_fields.get(sort_by, Post.published_at)
+    is_desc = sort_order.lower() == "desc"
+    
+    if sort_by == "published_at":
+        # published_at có thể NULL → dùng nullslast
+        if is_desc:
+            base_stmt = base_stmt.order_by(sort_field.desc().nullslast(), Post.created_at.desc())
+        else:
+            base_stmt = base_stmt.order_by(sort_field.asc().nullsfirst(), Post.created_at.asc())
+    else:
+        # Các field khác không có NULL → sort bình thường
+        if is_desc:
+            base_stmt = base_stmt.order_by(sort_field.desc(), Post.id.desc())
+        else:
+            base_stmt = base_stmt.order_by(sort_field.asc(), Post.id.asc())
 
     total_items = db.scalar(count_stmt) or 0
     total_pages = (total_items + page_size - 1) // page_size if total_items else 0

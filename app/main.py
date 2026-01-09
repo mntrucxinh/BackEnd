@@ -13,10 +13,15 @@ from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.ratelimit import RATE_LIMIT_RULES, RateLimiter
-from app.api.routes.admin import assets as admin_assets, news as admin_news, push as admin_push
-from app.api.routes.admin import assets as admin_assets, news as admin_news, announcements as admin_announcements
+from app.api.routes.admin import (
+    assets as admin_assets,
+    news as admin_news,
+    push as admin_push,
+    albums as admin_albums,
+    announcements as admin_announcements,
+)
 from app.api.routes import auth
-from app.api.routes.user import announcements as user_announcements, news as user_news, push as user_push
+from app.api.routes.user import announcements as user_announcements, news as user_news, push as user_push, albums as user_albums
 from app.core.database import get_db
 from app.core.errors import register_exception_handlers
 from app.core.seed import seed_data
@@ -98,12 +103,14 @@ app.include_router(admin_news.router)
 app.include_router(admin_announcements.router)
 app.include_router(admin_assets.router)
 app.include_router(admin_push.router)
+app.include_router(admin_albums.router)
 # Auth routes
 app.include_router(auth.router)
 # Public/User API routes
 app.include_router(user_news.router)
 app.include_router(user_announcements.router)
 app.include_router(user_push.router)
+app.include_router(user_albums.router)
 
 # Mount static files để serve uploads
 # Dùng cùng UPLOAD_DIR với asset_service

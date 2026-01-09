@@ -1,7 +1,7 @@
 """add push subscriptions table
 
 Revision ID: 0012_add_push_subscriptions
-Revises: 0011_add_facebook_fields
+Revises: 0011_facebook_fields
 Create Date: 2026-01-07
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "0012_add_push_subscriptions"
-down_revision = "0011_add_facebook_fields"
+down_revision = "0011_facebook_fields"
 branch_labels = None
 depends_on = None
 
