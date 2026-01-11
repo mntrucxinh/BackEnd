@@ -19,9 +19,16 @@ from app.api.routes.admin import (
     push as admin_push,
     albums as admin_albums,
     announcements as admin_announcements,
+    contact_messages as admin_contact_messages,
 )
 from app.api.routes import auth
-from app.api.routes.user import announcements as user_announcements, news as user_news, push as user_push, albums as user_albums
+from app.api.routes.user import (
+    announcements as user_announcements,
+    news as user_news,
+    push as user_push,
+    albums as user_albums,
+    contact as user_contact,
+)
 from app.core.database import get_db
 from app.core.errors import register_exception_handlers
 from app.core.seed import seed_data
@@ -104,6 +111,7 @@ app.include_router(admin_announcements.router)
 app.include_router(admin_assets.router)
 app.include_router(admin_push.router)
 app.include_router(admin_albums.router)
+app.include_router(admin_contact_messages.router)
 # Auth routes
 app.include_router(auth.router)
 # Public/User API routes
@@ -111,6 +119,7 @@ app.include_router(user_news.router)
 app.include_router(user_announcements.router)
 app.include_router(user_push.router)
 app.include_router(user_albums.router)
+app.include_router(user_contact.router)
 
 # Mount static files để serve uploads
 # Dùng cùng UPLOAD_DIR với asset_service
