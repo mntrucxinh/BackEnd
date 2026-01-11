@@ -19,6 +19,7 @@ from app.api.routes.admin import (
     push as admin_push,
     albums as admin_albums,
     announcements as admin_announcements,
+    contact_messages as admin_contact_messages,
 )
 from app.api.routes import auth
 from app.api.routes.user import (
@@ -110,6 +111,7 @@ app.include_router(admin_announcements.router)
 app.include_router(admin_assets.router)
 app.include_router(admin_push.router)
 app.include_router(admin_albums.router)
+app.include_router(admin_contact_messages.router)
 # Auth routes
 app.include_router(auth.router)
 # Public/User API routes
