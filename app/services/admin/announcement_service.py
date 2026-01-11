@@ -754,10 +754,10 @@ def update_announcement(
     return _to_admin_announcement_out(db, post)
 
 
-def delete_announcement(db: Session, announcement_id: int, user: Optional[User] = None) -> None:
+def delete_announcement(db: Session, announcement_id: int, user: Optional[User] = None, delete_on_facebook: bool = False) -> None:
     logger.info(
         "Deleting announcement",
-        extra={"action": "delete_announcement", "announcement_id": announcement_id},
+        extra={"action": "delete_announcement", "announcement_id": announcement_id, "delete_on_facebook": delete_on_facebook},
     )
 
     stmt = select(Post).where(
@@ -775,7 +775,8 @@ def delete_announcement(db: Session, announcement_id: int, user: Optional[User] 
             },
         )
 
-    if post.status == ContentStatus.PUBLISHED:
+    # Xóa trên Facebook nếu delete_on_facebook = True và đã đăng
+    if delete_on_facebook and post.status == ContentStatus.PUBLISHED:
         _delete_from_facebook(db, post.id, user=user)
 
     post.deleted_at = datetime.now(timezone.utc)

@@ -307,9 +307,11 @@ async def update_news(
 )
 def delete_news(
     news_id: int,
+    delete_on_facebook: bool = Query(False, description="Có xóa trên Facebook hay không"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
-    news_service.delete_news(db, news_id)
+    news_service.delete_news(db, news_id, user=current_user, delete_on_facebook=delete_on_facebook)
     # Trả về 204 No Content, không body (đúng chuẩn HTTP và FastAPI)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

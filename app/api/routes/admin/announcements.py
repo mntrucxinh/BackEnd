@@ -258,9 +258,11 @@ async def update_announcement(
 )
 def delete_announcement(
     announcement_id: int,
+    delete_on_facebook: bool = Query(False, description="Có xóa trên Facebook hay không"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
-    announcement_service.delete_announcement(db, announcement_id)
+    announcement_service.delete_announcement(db, announcement_id, user=current_user, delete_on_facebook=delete_on_facebook)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

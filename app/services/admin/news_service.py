@@ -808,14 +808,14 @@ def update_news(db: Session, news_id: int, payload: NewsUpdate, user: Optional[U
     return _to_news_out(db, post)
 
 
-def delete_news(db: Session, news_id: int, user: Optional[User] = None) -> None:
+def delete_news(db: Session, news_id: int, user: Optional[User] = None, delete_on_facebook: bool = False) -> None:
     """Xóa bài viết (soft delete) và xóa post trên Facebook nếu có."""
-    logger.info("Deleting news post", extra={"action": "delete_news", "news_id": news_id})
+    logger.info("Deleting news post", extra={"action": "delete_news", "news_id": news_id, "delete_on_facebook": delete_on_facebook})
     
     post = _get_news_or_404(db, news_id)
     
-    # Xóa trên Facebook nếu đã đăng
-    if post.status == ContentStatus.PUBLISHED:
+    # Xóa trên Facebook nếu đã đăng và delete_on_facebook = True
+    if delete_on_facebook and post.status == ContentStatus.PUBLISHED:
         _delete_from_facebook(db, post.id, user=user)
     
     post.deleted_at = datetime.now(timezone.utc)
