@@ -423,6 +423,79 @@ def update_album(
         else:
             album.cover_asset_id = None
     
+    # Update items/videos
+    if payload.items is not None:
+        # Xóa tất cả items cũ
+        existing_items = db.scalars(
+            select(AlbumItem).where(AlbumItem.album_id == album.id)
+        ).all()
+        for item in existing_items:
+            db.delete(item)
+        # Flush để đảm bảo xóa được commit trước khi insert mới (tránh unique constraint violation)
+        db.flush()
+        # Thêm items mới
+        if payload.items:
+            asset_public_ids = [item.asset_public_id for item in payload.items]
+            asset_map = _resolve_asset_ids(db, asset_public_ids)
+            
+            # Validate không có duplicate asset_id hoặc position
+            seen_asset_ids = set()
+            seen_positions = set()
+            for item in payload.items:
+                asset_id = asset_map.get(item.asset_public_id)
+                if asset_id:
+                    if asset_id in seen_asset_ids:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail={
+                                "code": "duplicate_asset",
+                                "message": f"Asset {item.asset_public_id} đã được thêm vào album.",
+                            },
+                        )
+                    if item.position in seen_positions:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail={
+                                "code": "duplicate_position",
+                                "message": f"Position {item.position} đã được sử dụng.",
+                            },
+                        )
+                    seen_asset_ids.add(asset_id)
+                    seen_positions.add(item.position)
+                    
+                    album_item = AlbumItem(
+                        album_id=album.id,
+                        asset_id=asset_id,
+                        position=item.position,
+                        caption=item.caption,
+                    )
+                    db.add(album_item)
+        # Nếu payload.items = [] thì chỉ xóa, không thêm gì
+    
+    if payload.videos is not None:
+        # Xóa tất cả videos cũ
+        existing_videos = db.scalars(
+            select(AlbumVideo).where(AlbumVideo.album_id == album.id)
+        ).all()
+        for video in existing_videos:
+            db.delete(video)
+        # Flush để đảm bảo xóa được commit trước khi insert mới (tránh unique constraint violation)
+        db.flush()
+        # Thêm videos mới
+        if payload.videos:
+            video_public_ids = [video.video_public_id for video in payload.videos]
+            video_map = _resolve_video_ids(db, video_public_ids)
+            for video in payload.videos:
+                video_id = video_map.get(video.video_public_id)
+                if video_id:
+                    album_video = AlbumVideo(
+                        album_id=album.id,
+                        video_id=video_id,
+                        position=video.position,
+                    )
+                    db.add(album_video)
+        # Nếu payload.videos = [] thì chỉ xóa, không thêm gì
+    
     album.updated_at = datetime.now(timezone.utc)
     
     db.commit()

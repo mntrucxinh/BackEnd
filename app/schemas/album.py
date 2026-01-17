@@ -111,6 +111,14 @@ class AlbumUpdate(BaseModel):
         default=None,
         description="Public ID của ảnh cover. Set null để giữ nguyên.",
     )
+    items: Optional[list[AlbumItemCreate]] = Field(
+        default=None,
+        description="Danh sách ảnh trong album (theo thứ tự). Nếu None thì giữ nguyên, nếu [] thì xóa hết, nếu có items thì thay thế toàn bộ.",
+    )
+    videos: Optional[list[AlbumVideoCreate]] = Field(
+        default=None,
+        description="Danh sách video trong album (theo thứ tự). Nếu None thì giữ nguyên, nếu [] thì xóa hết, nếu có videos thì thay thế toàn bộ.",
+    )
 
 
 class AlbumOut(BaseModel):

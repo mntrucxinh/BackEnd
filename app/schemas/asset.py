@@ -63,3 +63,9 @@ class AssetListMeta(BaseModel):
 class AssetListOut(BaseModel):
     items: list[AssetOut]
     meta: AssetListMeta
+
+
+class PublicAssetListOut(BaseModel):
+    """Schema cho danh sách assets trong public API."""
+    items: list[PublicAssetOut]
+    meta: AssetListMeta

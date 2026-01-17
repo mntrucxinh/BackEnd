@@ -32,6 +32,7 @@ class JobStatus(str, enum.Enum):
 class EmbedProvider(str, enum.Enum):
     YOUTUBE = "youtube"
     FACEBOOK = "facebook"
+    LOCAL = "local"  # Video được upload trực tiếp lên server
 
 
 class ContactStatus(str, enum.Enum):

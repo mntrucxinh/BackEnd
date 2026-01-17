@@ -123,30 +123,48 @@ async def create_album(
     """
     user_id = current_user.id
     
-    # Upload new files
-    new_asset_public_ids = []
+    # Upload new files và phân biệt ảnh/video
+    new_image_asset_public_ids = []
+    new_video_public_ids = []
     if new_files:
-        for file in new_files:
+        new_captions_list = new_captions or []
+        for idx, file in enumerate(new_files):
             asset = await asset_service.upload_asset(db, file, user_id)
-            new_asset_public_ids.append(asset.public_id)
+            caption = new_captions_list[idx] if idx < len(new_captions_list) else None
+            
+            # Phân biệt ảnh và video
+            if asset.mime_type.startswith("video/"):
+                # Video → tạo VideoEmbed
+                from app.models.enums import EmbedProvider
+                from app.models.tables import VideoEmbed
+                
+                video_embed = VideoEmbed(
+                    provider=EmbedProvider.LOCAL,
+                    url=asset.url or "",
+                    title=file.filename or None,
+                    created_by=user_id,
+                )
+                db.add(video_embed)
+                db.flush()  # Flush để lấy public_id
+                new_video_public_ids.append(video_embed.public_id)
+            else:
+                # Ảnh → thêm vào items
+                new_image_asset_public_ids.append((asset.public_id, caption))
     
-    # Build items list
+    # Build items list (chỉ ảnh)
     items = []
     position = 0
     
-    # Add new files
-    if new_asset_public_ids:
-        new_captions_list = new_captions or []
-        for idx, asset_public_id in enumerate(new_asset_public_ids):
-            caption = new_captions_list[idx] if idx < len(new_captions_list) else None
-            items.append(
-                AlbumItemCreate(
-                    asset_public_id=asset_public_id,
-                    position=position,
-                    caption=caption,
-                )
+    # Add new image files
+    for asset_public_id, caption in new_image_asset_public_ids:
+        items.append(
+            AlbumItemCreate(
+                asset_public_id=asset_public_id,
+                position=position,
+                caption=caption,
             )
-            position += 1
+        )
+        position += 1
     
     # Add existing assets
     if existing_asset_public_ids:
@@ -166,8 +184,19 @@ async def create_album(
             )
             position += 1
     
-    # Build videos list
+    # Build videos list (từ new videos + existing videos)
     videos = []
+    # Add new videos (từ upload)
+    for video_public_id in new_video_public_ids:
+        videos.append(
+            AlbumVideoCreate(
+                video_public_id=video_public_id,
+                position=position,
+            )
+        )
+        position += 1
+    
+    # Add existing videos
     if video_public_ids:
         for video_public_id in video_public_ids:
             videos.append(
@@ -194,19 +223,162 @@ async def create_album(
 
 
 @router.put("/{album_id}", response_model=AlbumOut)
-def update_album(
+async def update_album(
     album_id: int,
-    payload: AlbumUpdate = Body(...),
+    # Text fields - tất cả Optional
+    title: Optional[str] = Form(None, description="Tên album"),
+    description: Optional[str] = Form(None, description="Mô tả album"),
+    status: Optional[ContentStatus] = Form(None, description="Trạng thái: draft/published/archived"),
+    slug: Optional[str] = Form(None, description="Slug (nếu bỏ trống, tự động sinh từ title)"),
+    # Cover
+    cover_asset_public_id: Optional[UUID] = Form(
+        None, description="Public ID của ảnh cover (nếu None, giữ nguyên)"
+    ),
+    # Files - upload mới
+    new_files: Optional[List[UploadFile]] = File(
+        None, description="Danh sách files mới để upload (ảnh/video)"
+    ),
+    new_captions: Optional[List[str]] = Form(
+        None, description="Danh sách captions tương ứng với new_files (theo thứ tự)"
+    ),
+    # Assets có sẵn
+    existing_asset_public_ids: Optional[List[UUID]] = Form(
+        None, description="Danh sách public_id của assets có sẵn"
+    ),
+    existing_captions: Optional[List[str]] = Form(
+        None, description="Danh sách captions tương ứng với existing_asset_public_ids"
+    ),
+    # Videos
+    video_public_ids: Optional[List[UUID]] = Form(
+        None, description="Danh sách public_id của videos"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlbumOut:
     """
     Cập nhật album.
     
+    **Workflow:**
+    1. Upload new_files (nếu có) → tạo Assets mới
+    2. Lấy existing_asset_public_ids (nếu có) → dùng assets có sẵn
+    3. Lấy video_public_ids (nếu có) → thêm videos
+    4. Merge tất cả theo thứ tự → tạo album_items và album_videos
+    5. Set cover (nếu có)
+    
     **Lưu ý:**
-    - Để cập nhật items/videos, dùng endpoints riêng (sẽ implement sau)
-    - Endpoint này chỉ cập nhật metadata (title, description, status, cover)
+    - Nếu có new_files, existing_asset_public_ids, hoặc video_public_ids → thay thế toàn bộ items/videos
+    - Nếu không có → giữ nguyên items/videos cũ
+    - Tất cả fields đều Optional → chỉ update những field được truyền vào
     """
+    user_id = current_user.id
+    
+    # Upload new files và phân biệt ảnh/video
+    new_image_asset_public_ids = []
+    new_video_public_ids = []
+    if new_files:
+        new_captions_list = new_captions or []
+        for idx, file in enumerate(new_files):
+            asset = await asset_service.upload_asset(db, file, user_id)
+            caption = new_captions_list[idx] if idx < len(new_captions_list) else None
+            
+            # Phân biệt ảnh và video
+            if asset.mime_type.startswith("video/"):
+                # Video → tạo VideoEmbed
+                from app.models.enums import EmbedProvider
+                from app.models.tables import VideoEmbed
+                
+                video_embed = VideoEmbed(
+                    provider=EmbedProvider.LOCAL,
+                    url=asset.url or "",
+                    title=file.filename or None,
+                    created_by=user_id,
+                )
+                db.add(video_embed)
+                db.flush()  # Flush để lấy public_id
+                new_video_public_ids.append(video_embed.public_id)
+            else:
+                # Ảnh → thêm vào items
+                new_image_asset_public_ids.append((asset.public_id, caption))
+    
+    # Build items list nếu có new image files hoặc existing_asset_public_ids
+    # Logic: nếu có bất kỳ field nào → thay thế toàn bộ items
+    items = None
+    has_items_update = (new_image_asset_public_ids and len(new_image_asset_public_ids) > 0) or existing_asset_public_ids is not None
+    if has_items_update:
+        items = []
+        position = 0
+        
+        # Add new image files trước
+        for asset_public_id, caption in new_image_asset_public_ids:
+            items.append(
+                AlbumItemCreate(
+                    asset_public_id=asset_public_id,
+                    position=position,
+                    caption=caption,
+                )
+            )
+            position += 1
+        
+        # Add existing assets sau
+        if existing_asset_public_ids:
+            existing_captions_list = existing_captions or []
+            for idx, asset_public_id in enumerate(existing_asset_public_ids):
+                caption = (
+                    existing_captions_list[idx]
+                    if idx < len(existing_captions_list)
+                    else None
+                )
+                items.append(
+                    AlbumItemCreate(
+                        asset_public_id=asset_public_id,
+                        position=position,
+                        caption=caption,
+                    )
+                )
+                position += 1
+    
+    # Build videos list nếu có new videos hoặc video_public_ids
+    videos = None
+    has_videos_update = (new_video_public_ids and len(new_video_public_ids) > 0) or video_public_ids is not None
+    if has_videos_update:
+        videos = []
+        position = 0
+        # Nếu có items, position bắt đầu từ cuối items
+        if items:
+            position = len(items)
+        
+        # Add new videos trước
+        for video_public_id in new_video_public_ids:
+            videos.append(
+                AlbumVideoCreate(
+                    video_public_id=video_public_id,
+                    position=position,
+                )
+            )
+            position += 1
+        
+        # Add existing videos sau
+        if video_public_ids:
+            for video_public_id in video_public_ids:
+                videos.append(
+                    AlbumVideoCreate(
+                        video_public_id=video_public_id,
+                        position=position,
+                    )
+                )
+                position += 1
+    
+    # Create payload
+    payload = AlbumUpdate(
+        title=title,
+        slug=slug,
+        description=description,
+        status=status,
+        cover_asset_public_id=cover_asset_public_id,
+        items=items,
+        videos=videos,
+    )
+    
     return album_service.update_album(db, album_id, payload, user=current_user)
 
 

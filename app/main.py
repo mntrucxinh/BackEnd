@@ -28,6 +28,7 @@ from app.api.routes.user import (
     push as user_push,
     albums as user_albums,
     contact as user_contact,
+    assets as user_assets,
 )
 from app.core.database import get_db
 from app.core.errors import register_exception_handlers
@@ -120,6 +121,7 @@ app.include_router(user_announcements.router)
 app.include_router(user_push.router)
 app.include_router(user_albums.router)
 app.include_router(user_contact.router)
+app.include_router(user_assets.router)
 
 # Mount static files để serve uploads
 # Dùng cùng UPLOAD_DIR với asset_service
