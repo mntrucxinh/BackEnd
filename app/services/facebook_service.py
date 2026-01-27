@@ -810,17 +810,57 @@ def exchange_long_lived_token(short_lived_token: str) -> dict:
         
         if response.status_code != 200:
             error_data = response.json().get("error", {})
-            raise ValueError(
-                f"Không exchange được token: {error_data.get('message', 'Unknown error')}"
+            error_code = error_data.get("code", "")
+            error_message = error_data.get("message", "Unknown error")
+            error_type = error_data.get("type", "")
+            
+            logger.error(
+                "Failed to exchange Facebook token",
+                extra={
+                    "action": "exchange_token",
+                    "error_code": error_code,
+                    "error_type": error_type,
+                    "error_message": error_message,
+                    "http_status": response.status_code,
+                }
             )
+            
+            # Xử lý các lỗi phổ biến
+            if error_code == 190:  # Invalid OAuth access token
+                raise ValueError(
+                    "Token Facebook không hợp lệ hoặc đã hết hạn. "
+                    "Vui lòng đăng nhập lại Facebook để lấy token mới."
+                )
+            elif error_code == 100:  # Invalid parameter
+                raise ValueError(
+                    f"Token không hợp lệ: {error_message}. "
+                    "Vui lòng kiểm tra lại token từ Facebook OAuth."
+                )
+            else:
+                raise ValueError(
+                    f"Không exchange được token: {error_message} "
+                    f"(Code: {error_code}, Type: {error_type})"
+                )
         
         data = response.json()
+        logger.info(
+            "Facebook token exchanged successfully",
+            extra={"action": "exchange_token", "expires_in": data.get("expires_in")}
+        )
         return {
             "access_token": data["access_token"],
             "expires_in": data.get("expires_in", 5184000),  # 60 days default
         }
+    except ValueError:
+        # Re-raise ValueError (đã được format)
+        raise
     except requests.RequestException as e:
-        raise ValueError(f"Lỗi khi gọi Facebook API: {e}")
+        logger.error(
+            "Request error when exchanging Facebook token",
+            extra={"action": "exchange_token", "error": str(e), "error_type": type(e).__name__},
+            exc_info=True
+        )
+        raise ValueError(f"Lỗi kết nối khi exchange token: {str(e)}")
 
 
 def get_page_token_from_user_token(user_access_token: str) -> dict:
@@ -842,42 +882,143 @@ def get_page_token_from_user_token(user_access_token: str) -> dict:
         "fields": "id,name,access_token,tasks"
     }
     
+    log_context = {"action": "get_page_token"}
+    
     try:
         response = requests.get(url, params=params, timeout=10)
         
         if response.status_code != 200:
             error_data = response.json().get("error", {})
-            raise ValueError(
-                f"Không lấy được Pages: {error_data.get('message', 'Unknown error')}"
+            error_code = error_data.get("code", "")
+            error_message = error_data.get("message", "Unknown error")
+            error_type = error_data.get("type", "")
+            
+            logger.error(
+                "Failed to get Facebook Pages",
+                extra={
+                    **log_context,
+                    "error_code": error_code,
+                    "error_type": error_type,
+                    "error_message": error_message,
+                    "http_status": response.status_code,
+                }
             )
+            
+            # Xử lý các lỗi phổ biến
+            if error_code == 190:  # Invalid OAuth access token
+                raise ValueError(
+                    "Token Facebook không hợp lệ hoặc đã hết hạn. "
+                    "Vui lòng đăng nhập lại Facebook để lấy token mới."
+                )
+            elif error_code == 200:  # Permissions error
+                raise ValueError(
+                    "Token không có quyền truy cập Pages. "
+                    "Cần permission: pages_show_list. "
+                    "Vui lòng đăng nhập lại Facebook và cấp quyền truy cập Pages."
+                )
+            elif error_code == 10:  # Permission denied
+                raise ValueError(
+                    f"Không có quyền truy cập Pages: {error_message}. "
+                    "Vui lòng đảm bảo bạn đã cấp quyền pages_show_list khi đăng nhập Facebook."
+                )
+            else:
+                raise ValueError(
+                    f"Không lấy được Pages: {error_message} "
+                    f"(Code: {error_code}, Type: {error_type})"
+                )
         
         pages = response.json().get("data", [])
+        
+        logger.debug(
+            "Facebook Pages retrieved",
+            extra={**log_context, "page_count": len(pages)}
+        )
+        
         if not pages:
-            raise ValueError("User không quản lý Page nào")
+            logger.warning(
+                "User does not manage any Pages",
+                extra={**log_context}
+            )
+            raise ValueError(
+                "Tài khoản Facebook của bạn không quản lý Page nào. "
+                "Vui lòng:\n"
+                "1. Tạo Facebook Page mới, hoặc\n"
+                "2. Đăng nhập bằng tài khoản Facebook có quyền quản lý Page."
+            )
         
         # Lấy Page đầu tiên
         page = pages[0]
+        page_name = page.get("name", "Unknown")
+        page_id = page.get("id")
+        
+        logger.debug(
+            "Selected first Page",
+            extra={**log_context, "page_id": page_id, "page_name": page_name}
+        )
         
         # Check permissions
-        required_tasks = ["MANAGE", "CREATE_CONTENT"]
+        # Chỉ cần CREATE_CONTENT để đăng bài (MANAGE là quyền cao hơn, không bắt buộc)
+        required_task = "CREATE_CONTENT"
         page_tasks = page.get("tasks", [])
-        if not all(task in page_tasks for task in required_tasks):
+        
+        logger.debug(
+            "Checking Page permissions",
+            extra={**log_context, "page_id": page_id, "page_tasks": page_tasks, "required_task": required_task}
+        )
+        
+        if required_task not in page_tasks:
+            logger.warning(
+                "Page missing required permission",
+                extra={
+                    **log_context,
+                    "page_id": page_id,
+                    "page_name": page_name,
+                    "page_tasks": page_tasks,
+                    "required_task": required_task,
+                }
+            )
             raise ValueError(
-                f"Page không có đủ quyền. Cần: {required_tasks}, có: {page_tasks}"
+                f"Page '{page_name}' không có quyền để đăng bài.\n"
+                f"Cần quyền: {required_task}\n"
+                f"Hiện có: {', '.join(page_tasks) if page_tasks else 'Không có'}\n\n"
+                f"Cách fix:\n"
+                f"1. Vào Facebook Page Settings → Page Roles\n"
+                f"2. Đảm bảo bạn có vai trò 'Admin', 'Editor' hoặc 'Moderator' (có quyền CREATE_CONTENT)\n"
+                f"3. Hoặc đăng nhập bằng tài khoản Facebook có quyền quản lý Page."
             )
         
         page_token = page.get("access_token")
         if not page_token:
-            raise ValueError("Page không có access_token")
+            logger.error(
+                "Page missing access_token",
+                extra={**log_context, "page_id": page_id, "page_name": page_name}
+            )
+            raise ValueError(
+                f"Page '{page_name}' không có access_token. "
+                "Vui lòng thử lại hoặc liên hệ hỗ trợ."
+            )
+        
+        logger.info(
+            "Page token retrieved successfully",
+            extra={**log_context, "page_id": page_id, "page_name": page_name}
+        )
         
         return {
-            "page_id": page["id"],
+            "page_id": page_id,
             "access_token": page_token,
-            "name": page.get("name"),
+            "name": page_name,
             "expires_at": None,  # Page token thường không hết hạn nếu từ long-lived user token
         }
+    except ValueError:
+        # Re-raise ValueError (đã được format)
+        raise
     except requests.RequestException as e:
-        raise ValueError(f"Lỗi khi gọi Facebook API: {e}")
+        logger.error(
+            "Request error when getting Facebook Pages",
+            extra={**log_context, "error": str(e), "error_type": type(e).__name__},
+            exc_info=True
+        )
+        raise ValueError(f"Lỗi kết nối khi lấy Pages: {str(e)}")
 
 
 def refresh_facebook_page_token(db, user) -> tuple[str, str]:

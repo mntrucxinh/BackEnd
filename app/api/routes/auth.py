@@ -161,18 +161,49 @@ def link_facebook_page(
     3. Lưu cả 2 vào DB
     
     Sau đó hệ thống tự động refresh Page Token khi cần.
+    
+    **Lưu ý khi đổi nick Facebook:**
+    - Sau khi đổi nick, token cũ có thể không còn hợp lệ
+    - Cần đăng nhập lại Facebook OAuth để lấy token mới
+    - Đảm bảo tài khoản Facebook có quyền quản lý Page
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    log_context = {
+        "action": "link_facebook_page",
+        "user_id": current_user.id,
+    }
+    
+    logger.info("Starting Facebook Page link", extra=log_context)
+    
     try:
         # 1. Exchange thành Long-lived User Token
+        logger.debug("Exchanging short-lived token to long-lived", extra=log_context)
         long_lived = facebook_service.exchange_long_lived_token(payload.user_access_token)
         
         expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=long_lived["expires_in"]
         )
         
+        logger.debug(
+            "Token exchanged successfully",
+            extra={**log_context, "expires_in": long_lived["expires_in"]}
+        )
+        
         # 2. Lấy Page Token
+        logger.debug("Getting Page token from User token", extra=log_context)
         page_info = facebook_service.get_page_token_from_user_token(
             long_lived["access_token"]
+        )
+        
+        logger.info(
+            "Page token retrieved",
+            extra={
+                **log_context,
+                "page_id": page_info["page_id"],
+                "page_name": page_info.get("name"),
+            }
         )
         
         # 3. Lưu vào DB
@@ -189,6 +220,15 @@ def link_facebook_page(
         db.commit()
         db.refresh(current_user)
         
+        logger.info(
+            "Facebook Page linked successfully",
+            extra={
+                **log_context,
+                "page_id": page_info["page_id"],
+                "page_name": page_info.get("name"),
+            }
+        )
+        
         return FacebookLinkResponse(
             linked=True,
             page_id=page_info["page_id"],
@@ -198,9 +238,15 @@ def link_facebook_page(
         )
         
     except ValueError as e:
+        error_message = str(e)
+        logger.error(
+            "Failed to link Facebook Page",
+            extra={**log_context, "error": error_message},
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "facebook_link_failed", "message": str(e)},
+            detail={"code": "facebook_link_failed", "message": error_message},
         )
 
 
